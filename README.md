@@ -1,2 +1,2 @@
-# equilibriaTensegrityFramework.jl
+# equilibriaTensegrityFramework
  
