@@ -126,22 +126,22 @@ function plotWithMakie(vertices::Array, bars::Array, cables::Array)
     D = length(vertices[1])
     if(D==2)
         x = [vx[1] for vx in vertices]; y = [vx[2] for vx in vertices];
-        scene=Makie.scatter(x,y,markersize=25,color=:grey)
         for line in bars
             Makie.lines!([vertices[Int64(line[1])][1],vertices[Int64(line[2])][1]], [vertices[Int64(line[1])][2],vertices[Int64(line[2])][2]], linewidth=5,color=:black)
         end
         for line in cables
             Makie.lines!([vertices[Int64(line[1])][1],vertices[Int64(line[2])][1]], [vertices[Int64(line[1])][2],vertices[Int64(line[2])][2]], color=:blue)
         end
+        Makie.scatter!(x,y,markersize=25,color=:grey)
     elseif(D==3)
         x = [vx[1] for vx in vertices]; y = [vx[2] for vx in vertices]; z = [vx[3] for vx in vertices]
-        scene=Makie.scatter(x,y,z,markersize=25,color=:grey)
         for line in bars
-            Makie.lines!([vertices[Int64(line[1])][1],vertices[Int64(line[2])][1]], [vertices[Int64(line[1])][2],vertices[Int64(line[2])][2]], [vertices[Int64(line[1])][3],vertices[Int64(line[2])][3]], linewidth=7, color=:black)
+            Makie.lines!([vertices[Int64(line[1])][1],vertices[Int64(line[2])][1]], [vertices[Int64(line[1])][2],vertices[Int64(line[2])][2]], [vertices[Int64(line[1])][3],vertices[Int64(line[2])][3]], linewidth=5, color=:black)
         end
         for line in cables
             Makie.lines!([vertices[Int64(line[1])][1],vertices[Int64(line[2])][1]], [vertices[Int64(line[1])][2],vertices[Int64(line[2])][2]], [vertices[Int64(line[1])][3],vertices[Int64(line[2])][3]], color=:blue)
         end
+        Makie.scatter!(x,y,z,markersize=25,color=:grey)
     else
         throw(error("Plot only supported for 2D and 3D Frameworks."))
     end
