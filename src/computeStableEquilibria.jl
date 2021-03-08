@@ -103,9 +103,9 @@ function clearArrayOfVariables(array, listOfInternalVariables, realSol, listOfCo
         for j in 1:length(array[i])
             if(typeof(array[i][j])!=Float64 && typeof(array[i][j])!=Int64)
                 index=findfirst(en->en==array[i][j], listOfInternalVariables)
-                if(index==nothing || typeof(index) == Nothing || typeof(index) == Void)
+                if(index==nothing || typeof(index) == Nothing)
                     index=findfirst(en->en==array[i][j], listOfControlParams)
-                    if(index==nothing || typeof(index) == Nothing || typeof(index) == Void)
+                    if(index==nothing || typeof(index) == Nothing)
                         throw(error("The variable in the array is neither a control nor an internal parameter."))
                     end
                     append!(subsArray[i],[targetParams[index]])
