@@ -1,4 +1,4 @@
-using LinearAlgebra, HomotopyContinuation, Makie
+using LinearAlgebra, HomotopyContinuation, GLMakie, AbstractPlotting, AbstractPlotting.MakieLayout, Printf
 
 #=
 @input vertices::[[p_11,p_12,...], ..., [p_m1,p_m2,...]], unknownBars::[[i,j,l_ij],...], unknowncables::[[i,j,r_ij,e_ij]] with i<j
@@ -34,25 +34,26 @@ function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Ar
             S₀ = solutions(res₀)
             H = ParameterHomotopy(F, params₀, params₀)
             solver, _ = solver_startsolutions(H, S₀)
-            target_parameters!(solver, targetParams)
-            res₀ = solve(solver, S₀, threading = false)
-            realSol = filter(en->isempty(filter(x->x<0, en[length(listOfInternalVariables)+1:length(listOfInternalVariables)+length(delta)])) &&
-                isLocalMinimum(listOfInternalVariables, listOfControlParams, delta, lambda, L, G)(real.(en), targetParams), real_solutions(res₀))
+
+            bars = vcat(unknownBars, knownBars)
+            cables = vcat(unknownCables, knownCables)
+            realSol = plotWithMakie(vertices, bars, cables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G)
         else
             F = System(∇L; variables = [listOfInternalVariables; delta; lambda])
             res₀ = solve(F)
             realSol = filter(en->isempty(filter(x->x<0, en[length(listOfInternalVariables)+1:length(listOfInternalVariables)+length(delta)])) &&
                 isLocalMinimum(listOfInternalVariables, [], delta, lambda, L, G)(real.(en), []),real_solutions(res₀))
+            realSol = map(t->t[1:length(listOfInternalVariables)], realSol)
+
+            fixedVertices = clearArrayOfVariables(vertices, listOfInternalVariables, realSol, listOfControlParams, targetParams)
+            bars = vcat(unknownBars, knownBars)
+            cables = vcat(unknownCables, knownCables)
+            plotWithMakie(fixedVertices, bars, cables)
         end
     else
         throw(error("Internal variables need to be provided!"))
     end
-    realSol = map(t->t[1:length(listOfInternalVariables)], realSol)
 
-    vertices = clearArrayOfVariables(vertices, listOfInternalVariables, realSol, listOfControlParams, targetParams)
-    bars = vcat(unknownBars, knownBars)
-    cables = vcat(unknownCables, knownCables)
-    plotWithMakie(vertices, bars, cables)
     return(realSol, listOfInternalVariables)
 end
 
@@ -120,6 +121,36 @@ function clearArrayOfVariables(array, listOfInternalVariables, realSol, listOfCo
     return(subsArray)
 end
 
+function arrangeArray(array, listOfInternalVariables, realSol, listOfControlParams, targetParams)
+    subsArray=[];
+    for i in 1:length(array)
+        helper=[];
+        for j in 1:length(array[i])
+            if(typeof(array[i][j])!=Float64 && typeof(array[i][j])!=Int64)
+                index=findfirst(en->en==array[i][j], listOfInternalVariables)
+                if(index==nothing || typeof(index) == Nothing)
+                    index=findfirst(en->en==array[i][j], listOfControlParams)
+                    if(index==nothing || typeof(index) == Nothing)
+                        throw(error("The variable in the array is neither a control nor an internal parameter."))
+                    end
+                    push!(helper,targetParams[index])
+                else
+                    push!(helper,realSol[1][index])
+                end
+            else
+                push!(helper,array[i][j])
+            end
+        end
+        if(length(helper)==2)
+            push!(subsArray,Point2f0(helper[1],helper[2]))
+        else
+            push!(subsArray,Point3f0(helper[1],helper[2],helper[3]))
+        end
+    end
+    return(subsArray)
+end
+
+
 # Creates a static, non-parametric plot of the vertices (grey) with corresponding bars (black) and cables (blue).
 function plotWithMakie(vertices::Array, bars::Array, cables::Array)
     scene = Scene()
@@ -127,32 +158,89 @@ function plotWithMakie(vertices::Array, bars::Array, cables::Array)
     if(D==2)
         x = [vx[1] for vx in vertices]; y = [vx[2] for vx in vertices];
         for line in bars
-            Makie.lines!([vertices[Int64(line[1])][1],vertices[Int64(line[2])][1]], [vertices[Int64(line[1])][2],vertices[Int64(line[2])][2]], linewidth=5,color=:black)
+            lines!([vertices[Int64(line[1])][1],vertices[Int64(line[2])][1]], [vertices[Int64(line[1])][2],vertices[Int64(line[2])][2]], linewidth=4,color=:black)
         end
         for line in cables
-            Makie.lines!([vertices[Int64(line[1])][1],vertices[Int64(line[2])][1]], [vertices[Int64(line[1])][2],vertices[Int64(line[2])][2]], color=:blue)
+            lines!([vertices[Int64(line[1])][1],vertices[Int64(line[2])][1]], [vertices[Int64(line[1])][2],vertices[Int64(line[2])][2]], color=:blue)
         end
-        Makie.scatter!(x,y,markersize=25,color=:grey)
+        scatter!(x,y,markersize=25,color=:grey)
     elseif(D==3)
         x = [vx[1] for vx in vertices]; y = [vx[2] for vx in vertices]; z = [vx[3] for vx in vertices]
         for line in bars
-            Makie.lines!([vertices[Int64(line[1])][1],vertices[Int64(line[2])][1]], [vertices[Int64(line[1])][2],vertices[Int64(line[2])][2]], [vertices[Int64(line[1])][3],vertices[Int64(line[2])][3]], linewidth=5, color=:black)
+            lines!([vertices[Int64(line[1])][1],vertices[Int64(line[2])][1]], [vertices[Int64(line[1])][2],vertices[Int64(line[2])][2]], [vertices[Int64(line[1])][3],vertices[Int64(line[2])][3]], linewidth=4, color=:black)
         end
         for line in cables
-            Makie.lines!([vertices[Int64(line[1])][1],vertices[Int64(line[2])][1]], [vertices[Int64(line[1])][2],vertices[Int64(line[2])][2]], [vertices[Int64(line[1])][3],vertices[Int64(line[2])][3]], color=:blue)
+            lines!([vertices[Int64(line[1])][1],vertices[Int64(line[2])][1]], [vertices[Int64(line[1])][2],vertices[Int64(line[2])][2]], [vertices[Int64(line[1])][3],vertices[Int64(line[2])][3]], color=:blue)
         end
-        Makie.scatter!(x,y,z,markersize=25,color=:grey)
+        scatter!(x,y,z,markersize=25,color=:grey)
     else
         throw(error("Plot only supported for 2D and 3D Frameworks."))
     end
     display(scene)
 end
 
-@var p[1:2]
-display(stableEquilibria([[1,2],[3,4],p],[[1,3,sqrt(2)]],[[2,3,1,1]],p,[],[],[],[]))
+#
+function plotWithMakie(vertices, bars, cables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G)
+    params=Node(targetParams)
+    scene, layout = layoutscene(resolution = (1100, 900))
+
+    ax = layout[1, 1] = LAxis(
+        scene,
+        width=1000
+    )
+    layout[2, 1] = hbox!(
+        LText(scene, "Control Parameters:"),
+        width=200
+    )
+
+    sl=Array{Any,1}(undef, length(listOfControlParams))
+    kx=Array{Observable,1}(undef, length(listOfControlParams))
+    for i in 1:length(listOfControlParams)
+        sl[i] = LSlider(scene, range = maximum([0,targetParams[i]-2]):0.1:targetParams[i]+2, startvalue = targetParams[i])
+        kx[i]=sl[i].value
+        layout[i+2, 1] = hbox!(
+            LText(scene, @lift(string(string(listOfControlParams[i]), ": ", string(to_value($(kx[i])))))),
+            sl[i],
+            width=300
+        )
+    end
+    for i in 1:length(kx)
+        obs=kx[i]
+        params = @lift begin
+            array=[para for para in $params]
+            array[i]=$obs
+            return(array)
+        end
+    end
+
+    realSol=@lift begin
+        target_parameters!(solver, $params)
+        res₀ = solve(solver, S₀, threading = false)
+        realSol = (map(t->t[1:length(listOfInternalVariables)], filter(en->isempty(filter(x->x<0, en[length(listOfInternalVariables)+1:length(listOfInternalVariables)+length(delta)])) &&
+            isLocalMinimum(listOfInternalVariables, listOfControlParams, delta, lambda, L, G)(real.(en), $params), real_solutions(res₀))))
+        fixedVertices = arrangeArray(vertices, listOfInternalVariables, realSol, listOfControlParams, $params)
+        for bar in bars
+            a=fixedVertices[Int64(bar[1])]; b=fixedVertices[Int64(bar[2])]
+            linesegments!(ax, [a, b] ; linewidth = 4.0, color=:black)
+        end
+        for cable in cables
+            a=fixedVertices[Int64(cable[1])]; b=fixedVertices[Int64(cable[2])];
+            linesegments!(ax, [a, b] ; color=:blue)
+        end
+        for vx in fixedVertices
+            scatter!(ax, vx; color=:grey)
+        end
+        display(scene)
+        return(realSol)
+    end
+    return(to_value(realSol))
+end
+
+@var p[1:2] l
+display(stableEquilibria([[1,2],[3,4],p],[[1,3,l]],[[2,3,1,1.0]],p,[l],[3.0],[],[]))
 
 @var p[1:6] ell
 display(stableEquilibria([p[1:3],p[4:6],[0,1,0], [sin(2*pi/3),cos(2*pi/3),0], [sin(4*pi/3),cos(4*pi/3),0]],[[1,2,ell]],[[1,3,1,1],[1,4,1,1],[1,5,1,1],[2,3,1,1],[2,4,1,1],[2,5,1,1]],
-    p,[ell],[1],[[3,4],[3,5],[4,5]],[]))
+    p,[ell],[1.0],[[3,4],[3,5],[4,5]],[]))
 
 #TODO Makie plot: listOfInternalVariables->solution
