@@ -184,10 +184,12 @@ function plotWithMakie(vertices, bars, cables, solver, S₀, listOfInternalVaria
     params=Node(targetParams)
     scene, layout = layoutscene(resolution = (1100, 900))
 
+    #TODO 2D/3D
     ax = layout[1, 1] = LAxis(
         scene,
         width=1000
     )
+
     layout[2, 1] = hbox!(
         LText(scene, "Control Parameters:"),
         width=200
@@ -196,7 +198,7 @@ function plotWithMakie(vertices, bars, cables, solver, S₀, listOfInternalVaria
     sl=Array{Any,1}(undef, length(listOfControlParams))
     kx=Array{Observable,1}(undef, length(listOfControlParams))
     for i in 1:length(listOfControlParams)
-        sl[i] = LSlider(scene, range = maximum([0,targetParams[i]-2]):0.1:targetParams[i]+2, startvalue = targetParams[i])
+        sl[i] = LSlider(scene, range = maximum([0.1,targetParams[i]-2]):0.1:targetParams[i]+3, startvalue = targetParams[i])
         kx[i]=sl[i].value
         layout[i+2, 1] = hbox!(
             LText(scene, @lift(string(string(listOfControlParams[i]), ": ", string(to_value($(kx[i])))))),
@@ -213,31 +215,38 @@ function plotWithMakie(vertices, bars, cables, solver, S₀, listOfInternalVaria
         end
     end
 
-    realSol=@lift begin
+    fixedVertices = @lift begin
         target_parameters!(solver, $params)
         res₀ = solve(solver, S₀, threading = false)
         realSol = (map(t->t[1:length(listOfInternalVariables)], filter(en->isempty(filter(x->x<0, en[length(listOfInternalVariables)+1:length(listOfInternalVariables)+length(delta)])) &&
             isLocalMinimum(listOfInternalVariables, listOfControlParams, delta, lambda, L, G)(real.(en), $params), real_solutions(res₀))))
         fixedVertices = arrangeArray(vertices, listOfInternalVariables, realSol, listOfControlParams, $params)
-        for bar in bars
-            a=fixedVertices[Int64(bar[1])]; b=fixedVertices[Int64(bar[2])]
-            linesegments!(ax, [a, b] ; linewidth = 4.0, color=:black)
-        end
-        for cable in cables
-            a=fixedVertices[Int64(cable[1])]; b=fixedVertices[Int64(cable[2])];
-            linesegments!(ax, [a, b] ; color=:blue)
-        end
-        for vx in fixedVertices
-            scatter!(ax, vx; color=:grey)
-        end
-        display(scene)
-        return(realSol)
+        #TODO Shadow vertices/fixedVertices
+        return(fixedVertices)
     end
-    return(to_value(realSol))
+
+
+    for bar in bars
+        linesegments!(ax, @lift([($fixedVertices)[Int64(bar[1])], ($fixedVertices)[Int64(bar[2])]]) ; linewidth = 4.0, color=:black)
+    end
+    for cable in cables
+        linesegments!(ax, @lift([($fixedVertices)[Int64(cable[1])], ($fixedVertices)[Int64(cable[2])]]) ; color=:blue)
+    end
+    #=@lift begin
+        scatter!(ax, [f for f in $fixedVertices]; color=:grey)
+    end=#
+    scatter!(ax, @lift([f for f in $fixedVertices]); color=:grey)
+    #=@lift begin
+        xlims!(ax, [minimum([f[1] for f in $fixedVertices])-0.25, maximum([f[1] for f in $fixedVertices])+0.25])
+        ylims!(ax, [minimum([f[2] for f in $fixedVertices])-0.25, maximum([f[2] for f in $fixedVertices])+0.25])
+    end=#
+    xlims!(ax, [minimum([f[1] for f in fixedVertices[]])-1, maximum([f[1] for f in fixedVertices[]])+1])
+    ylims!(ax, [minimum([f[2] for f in fixedVertices[]])-1, maximum([f[2] for f in fixedVertices[]])+1])
+    display(scene)
 end
 
 @var p[1:2] l
-display(stableEquilibria([[1,2],[3,4],p],[[1,3,l]],[[2,3,1,1.0]],p,[l],[3.0],[],[]))
+display(stableEquilibria([[1,2],[3,4],p],[[1,3,l]],[[2,3,1,1.0]],p,[l],[1.5],[],[]))
 
 @var p[1:6] ell
 display(stableEquilibria([p[1:3],p[4:6],[0,1,0], [sin(2*pi/3),cos(2*pi/3),0], [sin(4*pi/3),cos(4*pi/3),0]],[[1,2,ell]],[[1,3,1,1],[1,4,1,1],[1,5,1,1],[2,3,1,1],[2,4,1,1],[2,5,1,1]],
