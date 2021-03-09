@@ -183,12 +183,14 @@ end
 function plotWithMakie(vertices, bars, cables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G)
     params=Node(targetParams)
     scene, layout = layoutscene(resolution = (1100, 900))
-
-    #TODO 2D/3D
-    ax = layout[1, 1] = LAxis(
-        scene,
-        width=1000
-    )
+    if(length(vertices[1])==3)
+        ax = layout[1, 1] = LScene(scene, width=1000)
+    else
+        ax = layout[1, 1] = LAxis(
+            scene,
+            width=1000
+        )
+    end
 
     layout[2, 1] = hbox!(
         LText(scene, "Control Parameters:"),
@@ -232,16 +234,16 @@ function plotWithMakie(vertices, bars, cables, solver, S₀, listOfInternalVaria
     for cable in cables
         linesegments!(ax, @lift([($fixedVertices)[Int64(cable[1])], ($fixedVertices)[Int64(cable[2])]]) ; color=:blue)
     end
-    #=@lift begin
-        scatter!(ax, [f for f in $fixedVertices]; color=:grey)
-    end=#
-    scatter!(ax, @lift([f for f in $fixedVertices]); color=:grey)
-    #=@lift begin
-        xlims!(ax, [minimum([f[1] for f in $fixedVertices])-0.25, maximum([f[1] for f in $fixedVertices])+0.25])
-        ylims!(ax, [minimum([f[2] for f in $fixedVertices])-0.25, maximum([f[2] for f in $fixedVertices])+0.25])
-    end=#
-    xlims!(ax, [minimum([f[1] for f in fixedVertices[]])-1, maximum([f[1] for f in fixedVertices[]])+1])
-    ylims!(ax, [minimum([f[2] for f in fixedVertices[]])-1, maximum([f[2] for f in fixedVertices[]])+1])
+
+    scatter!(ax, @lift([f for f in $fixedVertices]); color=:grey, markersize=25)
+
+    if(length(vertices[1])==2)
+        @lift(xlims!(ax, [minimum([f[1] for f in $fixedVertices])-0.5, maximum([f[1] for f in $fixedVertices])+0.5]))
+        @lift(ylims!(ax, [minimum([f[2] for f in $fixedVertices])-0.5, maximum([f[2] for f in $fixedVertices])+0.5]))
+    elseif(length(vertices[1])==3)
+        update_limits!(scene, FRect((minimum([f[1] for f in fixedVertices[]])-0.5, minimum([f[2] for f in fixedVertices[]])-0.5, minimum([f[3] for f in fixedVertices[]])-0.5),
+            (maximum([f[1] for f in fixedVertices[]])+0.5, maximum([f[2] for f in fixedVertices[]])+0.5, maximum([f[3] for f in fixedVertices[]])+0.5)))
+    end
     display(scene)
 end
 
