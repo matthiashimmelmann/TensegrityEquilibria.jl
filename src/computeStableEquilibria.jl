@@ -7,16 +7,16 @@ Calculate configurations in equilibrium for the given tensegrity framework
 function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Array, listOfInternalVariables::Array{Variable,1}, listOfControlParams::Array, targetParams::Array, knownBars::Array, knownCables::Array)
     assertCorrectInput(vertices, unknownBars, unknownCables, listOfInternalVariables, listOfControlParams, targetParams, knownBars, knownCables)
 
-    @var delta[1:length(unknownCables)];
-    B=[]; C=[]; G=[]
+    @var delta[1:length(unknownCables)]
+    B, C, G = [], [], []
     for index in 1:length(unknownBars)
         l_ij=unknownBars[index][3]; p_i=vertices[Int64(unknownBars[index][1])]; p_j=vertices[Int64(unknownBars[index][2])];
-        append!(B, [sum((p_i-p_j).^2)-l_ij^2])
+        push!(B, sum((p_i-p_j).^2)-l_ij^2)
     end
 
     for index in 1:length(unknownCables)
         r_ij=unknownCables[index][3]; p_i=vertices[Int64(unknownCables[index][1])]; p_j=vertices[Int64(unknownCables[index][2])]; e_ij=unknownCables[index][4];
-        append!(C, [sum((p_i-p_j).^2)-delta[index]^2])
+        push!(C, sum((p_i-p_j).^2)-delta[index]^2)
     end
     append!(G,B); append!(G,C);
     e = map(t->t[4], unknownCables); r = map(t->t[3], unknownCables);
@@ -25,7 +25,6 @@ function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Ar
     @var lambda[1:length(G)]
     L = Q + lambda'*G
     ∇L = differentiate(L, [listOfInternalVariables; delta; lambda])
-    F=[]
     if(!isempty(listOfInternalVariables))
         if(!isempty(listOfControlParams))
             F = System(∇L; variables = [listOfInternalVariables; delta; lambda], parameters = listOfControlParams)
@@ -45,10 +44,10 @@ function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Ar
                 isLocalMinimum(listOfInternalVariables, [], delta, lambda, L, G)(real.(en), []),real_solutions(res₀))
             realSol = map(t->t[1:length(listOfInternalVariables)], realSol)
 
-            fixedVertices = clearArrayOfVariables(vertices, listOfInternalVariables, realSol, listOfControlParams, targetParams)
+            fixedVertices, shadowPoints = arrangeArray(vertices, listOfInternalVariables, realSol, listOfControlParams, targetParams)
             bars = vcat(unknownBars, knownBars)
             cables = vcat(unknownCables, knownCables)
-            plotWithMakie(fixedVertices, bars, cables)
+            plotWithMakie(fixedVertices, shadowPoints, bars, cables)
         end
     else
         throw(error("Internal variables need to be provided!"))
@@ -95,36 +94,13 @@ function assertCorrectInput(vertices, unknownBars, unknownCables, listOfInternal
 end
 
 # This function extracts the position of the parameters in the vertices and replaces them
-# with their respective computed value. WARNING: This cannot deal with Polynomial-type entries
-# of the vertices yet. Only pure variables are allowed.
-function clearArrayOfVariables(array, listOfInternalVariables, realSol, listOfControlParams, targetParams)
-    subsArray=[]
-    for i in 1:length(array)
-        append!(subsArray,[[]])
-        for j in 1:length(array[i])
-            if(typeof(array[i][j])!=Float64 && typeof(array[i][j])!=Int64)
-                index=findfirst(en->en==array[i][j], listOfInternalVariables)
-                if(index==nothing || typeof(index) == Nothing)
-                    index=findfirst(en->en==array[i][j], listOfControlParams)
-                    if(index==nothing || typeof(index) == Nothing)
-                        throw(error("The variable in the array is neither a control nor an internal parameter."))
-                    end
-                    append!(subsArray[i],[targetParams[index]])
-                else
-                    append!(subsArray[i],[realSol[1][index]])
-                end
-            else
-                append!(subsArray[i],[array[i][j]])
-            end
-        end
-    end
-    return(subsArray)
-end
-
+# with their respective computed value. It returns the array of vertices in the form of Point2f0/Point3f0
+# and the array of all other minimizers of the energy function Q, that were not yet used, in shadowPoints.
+# WARNING: This cannot deal with Polynomial-type entries of the vertices yet. Only pure variables are allowed.
 function arrangeArray(array, listOfInternalVariables, realSol, listOfControlParams, targetParams)
-    subsArray=[];
+    subsArray=[]; shadowPoints=[];
     for i in 1:length(array)
-        helper=[];
+        helper=[]; shadowHelper=[];
         for j in 1:length(array[i])
             if(typeof(array[i][j])!=Float64 && typeof(array[i][j])!=Int64)
                 index=findfirst(en->en==array[i][j], listOfInternalVariables)
@@ -134,52 +110,40 @@ function arrangeArray(array, listOfInternalVariables, realSol, listOfControlPara
                         throw(error("The variable in the array is neither a control nor an internal parameter."))
                     end
                     push!(helper,targetParams[index])
+                    push!(shadowHelper,targetParams[index])
                 else
                     push!(helper,realSol[1][index])
+                    length(realSol)>1 ? push!(shadowHelper,[realSol[i][index] for i in 2:length(realSol)]) : nothing
                 end
             else
                 push!(helper,array[i][j])
+                push!(shadowHelper,array[i][j])
             end
         end
-        if(length(helper)==2)
-            push!(subsArray,Point2f0(helper[1],helper[2]))
-        else
-            push!(subsArray,Point3f0(helper[1],helper[2],helper[3]))
-        end
+        length(helper)==2 ? push!(subsArray,Point2f0(helper[1],helper[2])) : push!(subsArray,Point3f0(helper[1],helper[2],helper[3]))
+        !all(t->typeof(t)!=Array{Float64,1}, shadowHelper) ?
+            append!(shadowPoints, [length(helper)==2 ? Point2f0(typeof(shadowHelper[1])==Array{Float64,1} ? shadowHelper[1][i] : shadowHelper[1], typeof(shadowHelper[2])==Array{Float64,1} ? shadowHelper[2][i] : shadowHelper[2]) :
+                Point3f0(typeof(shadowHelper[1])==Array{Float64,1} ? shadowHelper[1][i] : shadowHelper[1], typeof(shadowHelper[2])==Array{Float64,1} ? shadowHelper[2][i] : shadowHelper[2],  typeof(shadowHelper[3])==Array{Float64,1} ? shadowHelper[3][i] : shadowHelper[3])
+                for i in 1:maximum([length(coord) for coord in shadowHelper])]) : length(helper)>length(shadowHelper) ? push!(shadowPoints, subsArray[end]) : nothing
     end
-    return(subsArray)
+    return(subsArray, shadowPoints)
 end
 
 
-# Creates a static, non-parametric plot of the vertices (grey) with corresponding bars (black) and cables (blue).
-function plotWithMakie(vertices::Array, bars::Array, cables::Array)
-    scene = Scene()
-    D = length(vertices[1])
-    if(D==2)
-        x = [vx[1] for vx in vertices]; y = [vx[2] for vx in vertices];
-        for line in bars
-            lines!([vertices[Int64(line[1])][1],vertices[Int64(line[2])][1]], [vertices[Int64(line[1])][2],vertices[Int64(line[2])][2]], linewidth=4,color=:black)
-        end
-        for line in cables
-            lines!([vertices[Int64(line[1])][1],vertices[Int64(line[2])][1]], [vertices[Int64(line[1])][2],vertices[Int64(line[2])][2]], color=:blue)
-        end
-        scatter!(x,y,markersize=25,color=:grey)
-    elseif(D==3)
-        x = [vx[1] for vx in vertices]; y = [vx[2] for vx in vertices]; z = [vx[3] for vx in vertices]
-        for line in bars
-            lines!([vertices[Int64(line[1])][1],vertices[Int64(line[2])][1]], [vertices[Int64(line[1])][2],vertices[Int64(line[2])][2]], [vertices[Int64(line[1])][3],vertices[Int64(line[2])][3]], linewidth=4, color=:black)
-        end
-        for line in cables
-            lines!([vertices[Int64(line[1])][1],vertices[Int64(line[2])][1]], [vertices[Int64(line[1])][2],vertices[Int64(line[2])][2]], [vertices[Int64(line[1])][3],vertices[Int64(line[2])][3]], color=:blue)
-        end
-        scatter!(x,y,z,markersize=25,color=:grey)
-    else
-        throw(error("Plot only supported for 2D and 3D Frameworks."))
-    end
+# Creates a static, non-parametric plot of the vertices (red) with corresponding bars (black) and cables (blue).
+# The shadow vertices are plotted in grey.
+function plotWithMakie(vertices, shadowPoints, bars, cables)
+    scene=Scene(resolution=(500,500))
+    foreach(bar->linesegments!(scene, [vertices[Int64(bar[1])], vertices[Int64(bar[2])]]; linewidth = length(vertices[1])==2 ? 4.0 : 5.0, color=:black), bars)
+    foreach(cable->linesegments!(scene, [vertices[Int64(cable[1])], vertices[Int64(cable[2])]]; color=:blue), cables)
+    scatter!(scene, [f for f in shadowPoints]; markersize=length(vertices[1])==2 ? 13 : 45,color=:grey, alpha=0.4, marker=:diamond)
+    scatter!(scene, [f for f in vertices]; markersize=length(vertices[1])==2 ? 13 : 45,color=:red)
+    xlims!(scene, Tuple([minimum([[v[1] for v in vertices]; !isempty(shadowPoints) ? [v[1] for v in shadowPoints] : []])-0.5, maximum([[v[1] for v in vertices]; !isempty(shadowPoints) ? [v[1] for v in shadowPoints] : []])+0.5]))
+    ylims!(scene, Tuple([minimum([[v[2] for v in vertices]; !isempty(shadowPoints) ? [v[2] for v in shadowPoints] : []])-0.5, maximum([[v[2] for v in vertices]; !isempty(shadowPoints) ? [v[2] for v in shadowPoints] : []])+0.5]))
+    scene.axis.aspect = AxisAspect(1)
     display(scene)
 end
 
-#
 function plotWithMakie(vertices, bars, cables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G)
     params=Node(targetParams)
     scene, layout = layoutscene(resolution = (1100, 900))
@@ -201,68 +165,59 @@ function plotWithMakie(vertices, bars, cables, solver, S₀, listOfInternalVaria
     kx=Array{Observable,1}(undef, length(listOfControlParams))
     for i in 1:length(listOfControlParams)
         sl[i] = LSlider(scene, range = maximum([0.1,targetParams[i]-2]):0.1:targetParams[i]+3, startvalue = targetParams[i])
-        kx[i]=sl[i].value
         layout[i+2, 1] = hbox!(
-            LText(scene, @lift(string(string(listOfControlParams[i]), ": ", string(to_value($(kx[i])))))),
+            LText(scene, @lift(string(string(listOfControlParams[i]), ": ", string(to_value($(sl[i].value)))))),
             sl[i],
             width=300
         )
-    end
-    for i in 1:length(kx)
-        obs=kx[i]
         params = @lift begin
-            array=[para for para in $params]
-            array[i]=$obs
-            return(array)
+            params=[para for para in $params]
+            params[i]=$(sl[i].value)
         end
     end
 
-    fixedVertices = @lift begin
+    allPossibilities = @lift begin
         target_parameters!(solver, $params)
         res₀ = solve(solver, S₀, threading = false)
         realSol = (map(t->t[1:length(listOfInternalVariables)], filter(en->isempty(filter(x->x<0, en[length(listOfInternalVariables)+1:length(listOfInternalVariables)+length(delta)])) &&
             isLocalMinimum(listOfInternalVariables, listOfControlParams, delta, lambda, L, G)(real.(en), $params), real_solutions(res₀))))
-        fixedVertices = arrangeArray(vertices, listOfInternalVariables, realSol, listOfControlParams, $params)
-        #TODO Shadow vertices/fixedVertices
-        return(fixedVertices)
+         allPossibilities = arrangeArray(vertices, listOfInternalVariables, realSol, listOfControlParams, $params)
     end
+    fixedVertices=@lift(($allPossibilities)[1])
+    shadowPoints=@lift(($allPossibilities)[2])
 
-
-    for bar in bars
-        linesegments!(ax, @lift([($fixedVertices)[Int64(bar[1])], ($fixedVertices)[Int64(bar[2])]]) ; linewidth = 4.0, color=:black)
-    end
-    for cable in cables
-        linesegments!(ax, @lift([($fixedVertices)[Int64(cable[1])], ($fixedVertices)[Int64(cable[2])]]) ; color=:blue)
-    end
+    foreach(bar->linesegments!(ax, @lift([($fixedVertices)[Int64(bar[1])], ($fixedVertices)[Int64(bar[2])]]) ; linewidth = length(vertices[1])==2 ? 4.0 : 5.0, color=:black), bars)
+    foreach(cable->linesegments!(ax, @lift([($fixedVertices)[Int64(cable[1])], ($fixedVertices)[Int64(cable[2])]]) ; color=:blue), cables)
+    scatter!(ax, @lift([f for f in $shadowPoints]); color=:grey, marker = :diamond, alpha=0.3, markersize = length(vertices[1])==2 ? 13 : 45)
+    scatter!(ax, @lift([f for f in $fixedVertices]); color=:red, markersize = length(vertices[1])==2 ? 13 : 45)
 
     if(length(vertices[1])==2)
         xlimiter = Node([Inf,-Inf]); xlimiter = @lift(computeMinMax($fixedVertices, $xlimiter, 1));
         ylimiter = Node([Inf,-Inf]); ylimiter = @lift(computeMinMax($fixedVertices, $ylimiter, 2));
-        scatter!(ax, @lift([f for f in $fixedVertices]); color=:red, markersize=15)
         @lift(limits!(ax, FRect((($xlimiter)[1]-0.5,($ylimiter)[1]-0.5), (($xlimiter)[2]-($xlimiter)[1]+1.0,($ylimiter)[2]-($ylimiter)[1]+1.0))))
     elseif(length(vertices[1])==3)
         xlimiter = Node([Inf,-Inf]); xlimiter = @lift(computeMinMax($fixedVertices, $xlimiter, 1));
         ylimiter = Node([Inf,-Inf]); ylimiter = @lift(computeMinMax($fixedVertices, $ylimiter, 2));
         zlimiter = Node([Inf,-Inf]); zlimiter = @lift(computeMinMax($fixedVertices, $zlimiter, 3));
-        scatter!(ax, @lift([f for f in $fixedVertices]); color=:red, markersize=35)
-        display(ax.scene.plots)
+        #TODO set limits in 3D: How?
     end
     display(scene)
-    return(Array{Any,1}(vertices))
+    return(fixedVertices[])
 end
 
+# This method omputes the minimal and maximal element of the position xyz a nested array (so all values of the form
+# array[:][index]). Afterwards it checks if the previous minimum limiter[1] or the maximum limter[2] is beaten. If so,
+# it returns the new optima.
 function computeMinMax(fixedVertices,limiter,xyz)
-    begin
-        for i in 1:length(fixedVertices)
-            fixedVertices[i][xyz] > limiter[2] ? limiter[2]=fixedVertices[i][xyz] : nothing
-            fixedVertices[i][xyz] < limiter[1] ? limiter[1]=fixedVertices[i][xyz] : nothing
-        end
-        return(limiter)
+    for i in 1:length(fixedVertices)
+        fixedVertices[i][xyz] > limiter[2] ? limiter[2]=fixedVertices[i][xyz] : nothing
+        fixedVertices[i][xyz] < limiter[1] ? limiter[1]=fixedVertices[i][xyz] : nothing
     end
+    return(limiter)
 end
 
 @var p[1:2] l
-display(stableEquilibria([[1,2],[3,4],p],[[1,3,l]],[[2,3,1,1.0]],p,[l],[1.5],[],[]))
+display(stableEquilibria([[1,2],[3,4],p],[[1,3,2.5]],[[2,3,1,1.0]],p,[],[],[],[]))
 
 @var p[1:6] ell
 display(stableEquilibria([p[1:3],p[4:6],[0,1,0], [sin(2*pi/3),cos(2*pi/3),0], [sin(4*pi/3),cos(4*pi/3),0]],[[1,2,ell]],[[1,3,1,1],[1,4,1,1],[1,5,1,1],[2,3,1,1],[2,4,1,1],[2,5,1,1]],
