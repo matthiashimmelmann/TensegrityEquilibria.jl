@@ -184,7 +184,7 @@ function plotWithMakie(vertices, bars, cables, solver, S₀, listOfInternalVaria
     params=Node(targetParams)
     scene, layout = layoutscene(resolution = (1100, 900))
     if(length(vertices[1])==3)
-        ax = layout[1, 1] = LScene(scene, width=1000)
+        ax = layout[1, 1] = LScene(scene, width=1000, camera = cam3d!, raw = false )
     else
         ax = layout[1, 1] = LAxis(
             scene,
@@ -235,16 +235,30 @@ function plotWithMakie(vertices, bars, cables, solver, S₀, listOfInternalVaria
         linesegments!(ax, @lift([($fixedVertices)[Int64(cable[1])], ($fixedVertices)[Int64(cable[2])]]) ; color=:blue)
     end
 
-    scatter!(ax, @lift([f for f in $fixedVertices]); color=:grey, markersize=25)
-
     if(length(vertices[1])==2)
-        @lift(xlims!(ax, [minimum([f[1] for f in $fixedVertices])-0.5, maximum([f[1] for f in $fixedVertices])+0.5]))
-        @lift(ylims!(ax, [minimum([f[2] for f in $fixedVertices])-0.5, maximum([f[2] for f in $fixedVertices])+0.5]))
+        xlimiter = Node([Inf,-Inf]); xlimiter = @lift(computeMinMax($fixedVertices, $xlimiter, 1));
+        ylimiter = Node([Inf,-Inf]); ylimiter = @lift(computeMinMax($fixedVertices, $ylimiter, 2));
+        scatter!(ax, @lift([f for f in $fixedVertices]); color=:red, markersize=15)
+        @lift(limits!(ax, FRect((($xlimiter)[1]-0.5,($ylimiter)[1]-0.5), (($xlimiter)[2]-($xlimiter)[1]+1.0,($ylimiter)[2]-($ylimiter)[1]+1.0))))
     elseif(length(vertices[1])==3)
-        update_limits!(scene, FRect((minimum([f[1] for f in fixedVertices[]])-0.5, minimum([f[2] for f in fixedVertices[]])-0.5, minimum([f[3] for f in fixedVertices[]])-0.5),
-            (maximum([f[1] for f in fixedVertices[]])+0.5, maximum([f[2] for f in fixedVertices[]])+0.5, maximum([f[3] for f in fixedVertices[]])+0.5)))
+        xlimiter = Node([Inf,-Inf]); xlimiter = @lift(computeMinMax($fixedVertices, $xlimiter, 1));
+        ylimiter = Node([Inf,-Inf]); ylimiter = @lift(computeMinMax($fixedVertices, $ylimiter, 2));
+        zlimiter = Node([Inf,-Inf]); zlimiter = @lift(computeMinMax($fixedVertices, $zlimiter, 3));
+        scatter!(ax, @lift([f for f in $fixedVertices]); color=:red, markersize=35)
+        display(ax.scene.plots)
     end
     display(scene)
+    return(Array{Any,1}(vertices))
+end
+
+function computeMinMax(fixedVertices,limiter,xyz)
+    begin
+        for i in 1:length(fixedVertices)
+            fixedVertices[i][xyz] > limiter[2] ? limiter[2]=fixedVertices[i][xyz] : nothing
+            fixedVertices[i][xyz] < limiter[1] ? limiter[1]=fixedVertices[i][xyz] : nothing
+        end
+        return(limiter)
+    end
 end
 
 @var p[1:2] l
