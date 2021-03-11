@@ -130,7 +130,7 @@ function plotWithMakie(vertices, bars, cables, solver, S₀, listOfInternalVaria
     params=Node(targetParams)
     scene, layout = layoutscene(resolution = (1100, 900))
     ax = layout[1, 1] = length(vertices[1])==3 ? LScene(scene, width=1000, camera = cam3d!, raw = false) : LAxis(scene,width=1000)
-    layout[2, 1] = hbox!(LText(scene, "Control Parameters:"),width=200)
+    length(listOfControlParams)>0 ? layout[2, 1] = hbox!(LText(scene, "Control Parameters:"),width=200) : nothing
 
     sl=Array{Any,1}(undef, length(listOfControlParams))
     for i in 1:length(listOfControlParams)
@@ -143,7 +143,6 @@ function plotWithMakie(vertices, bars, cables, solver, S₀, listOfInternalVaria
         params = @lift begin
             params=[para for para in $params]
             params[i]=$(sl[i].value)
-            return(params)
         end
     end
 
