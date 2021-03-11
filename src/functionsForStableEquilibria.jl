@@ -40,9 +40,7 @@ function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Ar
             realSol = plotWithMakie(vertices, vcat(unknownBars, knownBars), vcat(unknownCables, knownCables), solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G)
             return(realSol, listOfInternalVariables)
         catch e
-            display(e)
-            display(typeof(e))
-            if(!isa(e, InterruptException) || !isa(e, BoundsError))
+            if(!isa(e, InterruptException) && !isa(e, BoundsError))
                 println("Error ", e, " caught. Trying again...")
                 stableEquilibria(vertices, unknownBars, unknownCables, listOfInternalVariables, listOfControlParams, targetParams, knownBars, knownCables)
             end
