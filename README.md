@@ -29,7 +29,9 @@ stableEquilibria([p[1:3],p[4:6],[0,1,0],[sin(2*pi/3),cos(2*pi/3),0],[sin(4*pi/3)
 The input let's us deduce that 
 <img src="https://render.githubusercontent.com/render/math?math=e_{ij}=1,r_{ij}=1"> and that the target value of 
 <img src="https://render.githubusercontent.com/render/math?math=b_{ij}=\ell_{ij}"> is also <img src="https://render.githubusercontent.com/render/math?math=1">. The output of the plotting routine would then be the following image:
+
 <p align="center">
   <img src="https://user-images.githubusercontent.com/65544132/110790981-f8156880-8271-11eb-8e3d-6e157604a113.jpg">
 </p>
-The vertices of this framework are displayed in red, the rigid bars are black and the elastic cables are portrayed in blue. If there were any visibly different solutions to the polynomial system, in this case obtained by mirroring the unknown vertices <img src="https://render.githubusercontent.com/render/math?math=p(1)"> and <img src="https://render.githubusercontent.com/render/math?math=p(2)">, they would be transparently plotted in grey as "shadow vertices".
+
+The vertices of this framework are displayed in red, the rigid bars are black and the elastic cables are portrayed in blue. If there were any visibly different solutions to the polynomial system, in this case obtained by mirroring the unknown vertices <img src="https://render.githubusercontent.com/render/math?math=p(1)"> and <img src="https://render.githubusercontent.com/render/math?math=p(2)"> in the top and bottom of the image respectively, they would be transparently plotted in grey as "shadow vertices".
