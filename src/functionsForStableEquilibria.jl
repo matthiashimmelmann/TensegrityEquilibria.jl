@@ -1,3 +1,7 @@
+module functionsForStableEquilibria
+
+export stableEquilibria, start_demo
+
 using LinearAlgebra, HomotopyContinuation, GLMakie, AbstractPlotting, AbstractPlotting.MakieLayout, Printf
 
 #=
@@ -38,7 +42,7 @@ function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Ar
         catch e
             display(e)
             display(typeof(e))
-            if(!(typeof(e)==InterruptException) || !(typeof(e)==BoundsError))
+            if(!isa(e, InterruptException) || !isa(e, BoundsError))
                 println("Error ", e, " caught. Trying again...")
                 stableEquilibria(vertices, unknownBars, unknownCables, listOfInternalVariables, listOfControlParams, targetParams, knownBars, knownCables)
             end
@@ -189,9 +193,14 @@ function computeMinMax(fixedVertices,shadowPoints,limiter,xyz)
     return(limiter)
 end
 
-@var p[1:2] l
-display(stableEquilibria([[1,2],[3,4],p],[[1,3,2.5]],[[2,3,1,1.0]],p,[],[],[],[]))
+function start_demo()
+    #Tests
+    @var p[1:2] l
+    display(stableEquilibria([[1,2],[3,4],p],[[1,3,2.5]],[[2,3,1,1.0]],p,[],[],[],[]))
 
-@var p[1:6] ell
-display(stableEquilibria([p[1:3],p[4:6],[0,1,0], [sin(2*pi/3),cos(2*pi/3),0], [sin(4*pi/3),cos(4*pi/3),0]],[[1,2,ell]],[[1,3,1,1],[1,4,1,1],[1,5,1,1],[2,3,1,1],[2,4,1,1],[2,5,1,1]],
-    p,[ell],[1.0],[[3,4],[3,5],[4,5]],[]))
+    @var p[1:6] ell
+    display(stableEquilibria([p[1:3],p[4:6],[0,1,0], [sin(2*pi/3),cos(2*pi/3),0], [sin(4*pi/3),cos(4*pi/3),0]],[[1,2,ell]],[[1,3,1,1],[1,4,1,1],[1,5,1,1],[2,3,1,1],[2,4,1,1],[2,5,1,1]],
+        p,[ell],[1.0],[[3,4],[3,5],[4,5]],[]))
+end
+
+end
