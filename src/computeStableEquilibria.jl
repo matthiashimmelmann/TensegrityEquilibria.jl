@@ -13,7 +13,6 @@ function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Ar
         l_ij=unknownBars[index][3]; p_i=vertices[Int64(unknownBars[index][1])]; p_j=vertices[Int64(unknownBars[index][2])];
         push!(B, sum((p_i-p_j).^2)-l_ij^2)
     end
-
     for index in 1:length(unknownCables)
         r_ij=unknownCables[index][3]; p_i=vertices[Int64(unknownCables[index][1])]; p_j=vertices[Int64(unknownCables[index][2])]; e_ij=unknownCables[index][4];
         push!(C, sum((p_i-p_j).^2)-delta[index]^2)
@@ -26,34 +25,28 @@ function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Ar
     L = Q + lambda'*G
     ∇L = differentiate(L, [listOfInternalVariables; delta; lambda])
     if(!isempty(listOfInternalVariables))
-        if(!isempty(listOfControlParams))
-            F = System(∇L; variables = [listOfInternalVariables; delta; lambda], parameters = listOfControlParams)
-            params₀ = randn(ComplexF64, nparameters(F))
-            res₀ = solve(F; target_parameters = params₀)
+        F = isempty(listOfControlParams) ? System(∇L; variables = [listOfInternalVariables; delta; lambda]) : System(∇L; variables = [listOfInternalVariables; delta; lambda], parameters = listOfControlParams)
+        params₀ = randn(ComplexF64, nparameters(F))
+        try
+            res₀ = isempty(listOfControlParams) ? solve(F) : solve(F; target_parameters = params₀)
             S₀ = solutions(res₀)
             H = ParameterHomotopy(F, params₀, params₀)
             solver, _ = solver_startsolutions(H, S₀)
 
-            bars = vcat(unknownBars, knownBars)
-            cables = vcat(unknownCables, knownCables)
-            realSol = plotWithMakie(vertices, bars, cables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G)
-        else
-            F = System(∇L; variables = [listOfInternalVariables; delta; lambda])
-            res₀ = solve(F)
-            realSol = filter(en->isempty(filter(x->x<0, en[length(listOfInternalVariables)+1:length(listOfInternalVariables)+length(delta)])) &&
-                isLocalMinimum(listOfInternalVariables, [], delta, lambda, L, G)(real.(en), []),real_solutions(res₀))
-            realSol = map(t->t[1:length(listOfInternalVariables)], realSol)
-
-            fixedVertices, shadowPoints = arrangeArray(vertices, listOfInternalVariables, realSol, listOfControlParams, targetParams)
-            bars = vcat(unknownBars, knownBars)
-            cables = vcat(unknownCables, knownCables)
-            plotWithMakie(fixedVertices, shadowPoints, bars, cables)
+            realSol = plotWithMakie(vertices, vcat(unknownBars, knownBars), vcat(unknownCables, knownCables), solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G)
+            return(realSol, listOfInternalVariables)
+        catch e
+            display(e)
+            display(typeof(e))
+            if(!(typeof(e)==InterruptException) || !(typeof(e)==BoundsError))
+                println("Error ", e, " caught. Trying again...")
+                stableEquilibria(vertices, unknownBars, unknownCables, listOfInternalVariables, listOfControlParams, targetParams, knownBars, knownCables)
+            end
         end
     else
         throw(error("Internal variables need to be provided!"))
     end
-
-    return(realSol, listOfInternalVariables)
+    return(nothing)
 end
 
 # Check if the current configuration is a local minimum of Q
@@ -129,40 +122,15 @@ function arrangeArray(array, listOfInternalVariables, realSol, listOfControlPara
     return(subsArray, shadowPoints)
 end
 
-
-# Creates a static, non-parametric plot of the vertices (red) with corresponding bars (black) and cables (blue).
-# The shadow vertices are plotted in grey.
-function plotWithMakie(vertices, shadowPoints, bars, cables)
-    scene=Scene(resolution=(500,500))
-    foreach(bar->linesegments!(scene, [vertices[Int64(bar[1])], vertices[Int64(bar[2])]]; linewidth = length(vertices[1])==2 ? 4.0 : 5.0, color=:black), bars)
-    foreach(cable->linesegments!(scene, [vertices[Int64(cable[1])], vertices[Int64(cable[2])]]; color=:blue), cables)
-    scatter!(scene, [f for f in shadowPoints]; markersize=length(vertices[1])==2 ? 13 : 45,color=:grey, alpha=0.4, marker=:diamond)
-    scatter!(scene, [f for f in vertices]; markersize=length(vertices[1])==2 ? 13 : 45,color=:red)
-    xlims!(scene, Tuple([minimum([[v[1] for v in vertices]; !isempty(shadowPoints) ? [v[1] for v in shadowPoints] : []])-0.5, maximum([[v[1] for v in vertices]; !isempty(shadowPoints) ? [v[1] for v in shadowPoints] : []])+0.5]))
-    ylims!(scene, Tuple([minimum([[v[2] for v in vertices]; !isempty(shadowPoints) ? [v[2] for v in shadowPoints] : []])-0.5, maximum([[v[2] for v in vertices]; !isempty(shadowPoints) ? [v[2] for v in shadowPoints] : []])+0.5]))
-    scene.axis.aspect = AxisAspect(1)
-    display(scene)
-end
-
+# Creates a dynamic parametric plot of the vertices (red) with corresponding bars (black) and cables (blue).
+# The shadow vertices are plotted in grey. If there are no parameters given, this plot is static.
 function plotWithMakie(vertices, bars, cables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G)
     params=Node(targetParams)
     scene, layout = layoutscene(resolution = (1100, 900))
-    if(length(vertices[1])==3)
-        ax = layout[1, 1] = LScene(scene, width=1000, camera = cam3d!, raw = false )
-    else
-        ax = layout[1, 1] = LAxis(
-            scene,
-            width=1000
-        )
-    end
-
-    layout[2, 1] = hbox!(
-        LText(scene, "Control Parameters:"),
-        width=200
-    )
+    ax = layout[1, 1] = length(vertices[1])==3 ? LScene(scene, width=1000, camera = cam3d!, raw = false) : LAxis(scene,width=1000)
+    layout[2, 1] = hbox!(LText(scene, "Control Parameters:"),width=200)
 
     sl=Array{Any,1}(undef, length(listOfControlParams))
-    kx=Array{Observable,1}(undef, length(listOfControlParams))
     for i in 1:length(listOfControlParams)
         sl[i] = LSlider(scene, range = maximum([0.1,targetParams[i]-2]):0.1:targetParams[i]+3, startvalue = targetParams[i])
         layout[i+2, 1] = hbox!(
@@ -173,6 +141,7 @@ function plotWithMakie(vertices, bars, cables, solver, S₀, listOfInternalVaria
         params = @lift begin
             params=[para for para in $params]
             params[i]=$(sl[i].value)
+            return(params)
         end
     end
 
@@ -181,7 +150,7 @@ function plotWithMakie(vertices, bars, cables, solver, S₀, listOfInternalVaria
         res₀ = solve(solver, S₀, threading = false)
         realSol = (map(t->t[1:length(listOfInternalVariables)], filter(en->isempty(filter(x->x<0, en[length(listOfInternalVariables)+1:length(listOfInternalVariables)+length(delta)])) &&
             isLocalMinimum(listOfInternalVariables, listOfControlParams, delta, lambda, L, G)(real.(en), $params), real_solutions(res₀))))
-         allPossibilities = arrangeArray(vertices, listOfInternalVariables, realSol, listOfControlParams, $params)
+        arrangeArray(vertices, listOfInternalVariables, realSol, listOfControlParams, $params)
     end
     fixedVertices=@lift(($allPossibilities)[1])
     shadowPoints=@lift(($allPossibilities)[2])
@@ -192,13 +161,13 @@ function plotWithMakie(vertices, bars, cables, solver, S₀, listOfInternalVaria
     scatter!(ax, @lift([f for f in $fixedVertices]); color=:red, markersize = length(vertices[1])==2 ? 13 : 45)
 
     if(length(vertices[1])==2)
-        xlimiter = Node([Inf,-Inf]); xlimiter = @lift(computeMinMax($fixedVertices, $xlimiter, 1));
-        ylimiter = Node([Inf,-Inf]); ylimiter = @lift(computeMinMax($fixedVertices, $ylimiter, 2));
+        xlimiter = Node([Inf,-Inf]); xlimiter = @lift(computeMinMax($fixedVertices, $shadowPoints, $xlimiter, 1));
+        ylimiter = Node([Inf,-Inf]); ylimiter = @lift(computeMinMax($fixedVertices, $shadowPoints, $ylimiter, 2));
         @lift(limits!(ax, FRect((($xlimiter)[1]-0.5,($ylimiter)[1]-0.5), (($xlimiter)[2]-($xlimiter)[1]+1.0,($ylimiter)[2]-($ylimiter)[1]+1.0))))
     elseif(length(vertices[1])==3)
-        xlimiter = Node([Inf,-Inf]); xlimiter = @lift(computeMinMax($fixedVertices, $xlimiter, 1));
-        ylimiter = Node([Inf,-Inf]); ylimiter = @lift(computeMinMax($fixedVertices, $ylimiter, 2));
-        zlimiter = Node([Inf,-Inf]); zlimiter = @lift(computeMinMax($fixedVertices, $zlimiter, 3));
+        xlimiter = Node([Inf,-Inf]); xlimiter = @lift(computeMinMax($fixedVertices, $shadowPoints, $xlimiter, 1));
+        ylimiter = Node([Inf,-Inf]); ylimiter = @lift(computeMinMax($fixedVertices, $shadowPoints, $ylimiter, 2));
+        zlimiter = Node([Inf,-Inf]); zlimiter = @lift(computeMinMax($fixedVertices, $shadowPoints, $zlimiter, 3));
         #TODO set limits in 3D: How?
     end
     display(scene)
@@ -208,10 +177,14 @@ end
 # This method omputes the minimal and maximal element of the position xyz a nested array (so all values of the form
 # array[:][index]). Afterwards it checks if the previous minimum limiter[1] or the maximum limter[2] is beaten. If so,
 # it returns the new optima.
-function computeMinMax(fixedVertices,limiter,xyz)
+function computeMinMax(fixedVertices,shadowPoints,limiter,xyz)
     for i in 1:length(fixedVertices)
         fixedVertices[i][xyz] > limiter[2] ? limiter[2]=fixedVertices[i][xyz] : nothing
         fixedVertices[i][xyz] < limiter[1] ? limiter[1]=fixedVertices[i][xyz] : nothing
+    end
+    for i in 1:length(shadowPoints)
+        shadowPoints[i][xyz] > limiter[2] ? limiter[2]=shadowPoints[i][xyz] : nothing
+        shadowPoints[i][xyz] < limiter[1] ? limiter[1]=shadowPoints[i][xyz] : nothing
     end
     return(limiter)
 end
@@ -222,5 +195,3 @@ display(stableEquilibria([[1,2],[3,4],p],[[1,3,2.5]],[[2,3,1,1.0]],p,[],[],[],[]
 @var p[1:6] ell
 display(stableEquilibria([p[1:3],p[4:6],[0,1,0], [sin(2*pi/3),cos(2*pi/3),0], [sin(4*pi/3),cos(4*pi/3),0]],[[1,2,ell]],[[1,3,1,1],[1,4,1,1],[1,5,1,1],[2,3,1,1],[2,4,1,1],[2,5,1,1]],
     p,[ell],[1.0],[[3,4],[3,5],[4,5]],[]))
-
-#TODO Makie plot: listOfInternalVariables->solution
