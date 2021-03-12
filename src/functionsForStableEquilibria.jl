@@ -86,9 +86,9 @@ end
 # and the array of all other minimizers of the energy function Q, that were not yet used, in shadowPoints.
 # WARNING: This cannot deal with Polynomial-type entries of the vertices yet. Only pure variables are allowed.
 function arrangeArray(array, listOfInternalVariables, realSol, listOfControlParams, targetParams)
-    subsArray=[]; shadowPoints=[];
+    subsArray=[[] for sol in realSol]
     for i in 1:length(array)
-        helper=[]; shadowHelper=[];
+        helper=[];
         for j in 1:length(array[i])
             if(typeof(array[i][j])!=Float64 && typeof(array[i][j])!=Int64)
                 index=findfirst(en->en==array[i][j], listOfInternalVariables)
@@ -98,42 +98,40 @@ function arrangeArray(array, listOfInternalVariables, realSol, listOfControlPara
                         throw(error("The variable in the array is neither a control nor an internal parameter."))
                     end
                     push!(helper,targetParams[index])
-                    push!(shadowHelper,targetParams[index])
                 else
-                    push!(helper,realSol[1][index])
-                    length(realSol)>1 ? push!(shadowHelper,[realSol[i][index] for i in 2:length(realSol)]) : nothing
+                    push!(helper,[realSol[i][index] for i in 1:length(realSol)])
                 end
             else
                 push!(helper,array[i][j])
-                push!(shadowHelper,array[i][j])
             end
         end
-        length(helper)==2 ? push!(subsArray,Point2f0(helper[1],helper[2])) : push!(subsArray,Point3f0(helper[1],helper[2],helper[3]))
-        !all(t->typeof(t)!=Array{Float64,1}, shadowHelper) ?
-            append!(shadowPoints, [length(helper)==2 ? Point2f0(typeof(shadowHelper[1])==Array{Float64,1} ? shadowHelper[1][i] : shadowHelper[1], typeof(shadowHelper[2])==Array{Float64,1} ? shadowHelper[2][i] : shadowHelper[2]) :
-                Point3f0(typeof(shadowHelper[1])==Array{Float64,1} ? shadowHelper[1][i] : shadowHelper[1], typeof(shadowHelper[2])==Array{Float64,1} ? shadowHelper[2][i] : shadowHelper[2],  typeof(shadowHelper[3])==Array{Float64,1} ? shadowHelper[3][i] : shadowHelper[3])
-                for i in 1:maximum([length(coord) for coord in shadowHelper])]) : length(helper)>length(shadowHelper) ? push!(shadowPoints, subsArray[end]) : nothing
+        for i in 1:length(realSol)
+            if length(helper)==2
+                push!(subsArray[i], Point2f0(typeof(helper[1])==Array{Float64,1} ? helper[1][i] : helper[1], typeof(helper[2])==Array{Float64,1} ? helper[2][i] : helper[2]))
+            else
+                push!(subsArray[i], Point3f0(typeof(helper[1])==Array{Float64,1} ? helper[1][i] : helper[1], typeof(helper[2])==Array{Float64,1} ? helper[2][i] : helper[2], typeof(helper[3])==Array{Float64,1} ? helper[3][i] : helper[3]))
+            end
+        end
     end
-    return(subsArray, shadowPoints)
+    return(subsArray)
 end
 
 # Creates a dynamic parametric plot of the vertices (red) with corresponding bars (black) and cables (blue).
 # The shadow vertices are plotted in grey. If there are no parameters given, this plot is static.
 function plotWithMakie(vertices, bars, cables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G)
     params=Node(targetParams)
-    scene, layout = layoutscene(resolution = (1100, 900))
-    ax = layout[1, 1] = length(vertices[1])==3 ? LScene(scene, width=1000, camera = cam3d!, raw = false) : LAxis(scene,width=1000)
-    length(listOfControlParams)>0 ? layout[2, 1] = hbox!(LText(scene, "Control Parameters:"),width=200) : nothing
+    scene, layout = layoutscene(resolution = (1300, 850))
+    ax = layout[1:length(listOfControlParams)+2, 1] = length(vertices[1])==3 ? LScene(scene, width=750, height=750, camera = cam3d!, raw = false) : LAxis(scene,width=750,height=750)
+    length(listOfControlParams)>0 ? layout[2, 3] = hbox!(LText(scene, "Control Parameters:"),width=nothing) : nothing
 
     sl=Array{Any,1}(undef, length(listOfControlParams))
     for i in 1:length(listOfControlParams)
-        sl[i] = LSlider(scene, range = maximum([0.1,targetParams[i]-1]):0.025:targetParams[i]+1, startvalue = targetParams[i])
-        layout[i+2, 1] = hbox!(
-            LText(scene, @lift(string(string(listOfControlParams[i]), ": ", string(to_value($(sl[i].value)))))),
+        sl[i] = LSlider(scene, range = maximum([0.1,targetParams[i]-1]):0.05:targetParams[i]+1, startvalue = targetParams[i])
+        layout[i+2, 3] = hbox!(
+            LText(scene, @lift(string(string(listOfControlParams[i]), ": ", string(to_value($(sl[i].value))))), width=35),
             sl[i],
-            width=300
+            width=365
         )
-        # TODO instead of slider enter in Box
         params = @lift begin
             param = ($params)
             param[i]=$(sl[i].value)
@@ -141,22 +139,29 @@ function plotWithMakie(vertices, bars, cables, solver, S₀, listOfInternalVaria
         end
     end
 
-    allPossibilities = @lift begin
+    allVertices=@lift begin
         target_parameters!(solver, $params)
         res₀ = solve(solver, S₀, threading = false)
         realSol = (map(t->t[1:length(listOfInternalVariables)], filter(en->isempty(filter(x->x<0, en[length(listOfInternalVariables)+1:length(listOfInternalVariables)+length(delta)])) &&
             isLocalMinimum(listOfInternalVariables, listOfControlParams, delta, lambda, L, G)(real.(en), $params), real_solutions(res₀))))
         arrangeArray(vertices, listOfInternalVariables, realSol, listOfControlParams, $params)
     end
-    fixedVertices=@lift(($allPossibilities)[1])
-    shadowPoints=@lift(($allPossibilities)[2])
-    #TODO shadowPoints contains all minmal configurations => switch between them
+
+    menu = LMenu(scene, options = [string(i) for i in 1:length(allVertices[])], selection="1", direction=:down)
+    layout[1, 3] = hbox!(
+        LText(scene, "Set of Vertices: ", width = 150),
+        menu,
+        tellheight = false,
+        width = 400
+    )
+
+    fixedVertices=@lift(($allVertices)[$(menu.i_selected) > length($allVertices) ? 1 : $(menu.i_selected)])
+    shadowPoints=@lift(vcat(($allVertices)[1:end .!= $(menu.i_selected)]...))
 
     foreach(bar->linesegments!(ax, @lift([($fixedVertices)[Int64(bar[1])], ($fixedVertices)[Int64(bar[2])]]) ; linewidth = length(vertices[1])==2 ? 4.0 : 5.0, color=:black), bars)
     foreach(cable->linesegments!(ax, @lift([($fixedVertices)[Int64(cable[1])], ($fixedVertices)[Int64(cable[2])]]) ; color=:blue), cables)
     scatter!(ax, @lift([f for f in $shadowPoints]); color=:grey, marker = :diamond, alpha=0.1, markersize = length(vertices[1])==2 ? 12 : 75)
     scatter!(ax, @lift([f for f in $fixedVertices]); color=:red, markersize = length(vertices[1])==2 ? 12 : 75)
-
     if(length(vertices[1])==2)
         xlimiter = Node([Inf,-Inf]); xlimiter = @lift(computeMinMax($fixedVertices, $shadowPoints, $xlimiter, 1));
         ylimiter = Node([Inf,-Inf]); ylimiter = @lift(computeMinMax($fixedVertices, $shadowPoints, $ylimiter, 2));
@@ -190,8 +195,8 @@ function start_demo(whichTests::Array)
     #Tests
     if(1 in whichTests)
         @var p[1:2] l;
-        display(stableEquilibria([[1,2],[3,4],p],[[1,3,2.5]],[[2,3,1,1.0]],p,[],[],[],[]))
-        sleep(10)
+        display(stableEquilibria([[1,2],[3,4],p],[[1,3,l]],[[2,3,1,1]],p,[l],[2.5],[],[]))
+        sleep(1)
     end
 
     if(2 in whichTests)
@@ -202,7 +207,7 @@ function start_demo(whichTests::Array)
                                  p,[ell],[1.0],
                                  [[3,4],[3,5],[4,5]],[])
         )
-        sleep(10)
+        sleep(1)
     end
 
     if(3 in whichTests)
@@ -214,7 +219,7 @@ function start_demo(whichTests::Array)
                                  [],
                                  [[1,2],[2,3],[1,3]])
         )
-        sleep(10)
+        sleep(1)
     end
 end
 
