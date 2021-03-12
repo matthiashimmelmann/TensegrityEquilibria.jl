@@ -23,8 +23,13 @@ The output of this functions is primarily an interactive plot created using `Mak
 As an example, consider a triangular bipyramid framework with an equilateral triangel as base two unknown nodes and a rigid bar of unknown length between them. This tensegrity framework can be realized by the input
 ```
 @var p[1:6] ell
-stableEquilibria([p[1:3],p[4:6],[0,1,0],[sin(2*pi/3),cos(2*pi/3),0],[sin(4*pi/3),cos(4*pi/3),0]], [[1,2,ell]],
-    [[1,3,1,1],[1,4,1,1],[1,5,1,1],[2,3,1,1],[2,4,1,1],[2,5,1,1]], p, [ell], [1.0], [[3,4],[3,5],[4,5]], [])
+stableEquilibria([p[1:3], p[4:6], [0,1,0], [sin(2*pi/3),cos(2*pi/3),0], [sin(4*pi/3),cos(4*pi/3),0]],
+    [[1,2,ell]],
+    [[1,3,1,1], [1,4,1,1], [1,5,1,1], [2,3,1,1], [2,4,1,1], [2,5,1,1]],
+    p, [ell], [1.0],
+    [[3,4], [3,5], [4,5]], 
+    []
+)
 ```
 The input let's us deduce that 
 <img src="https://render.githubusercontent.com/render/math?math=e_{ij}=1,r_{ij}=1"> and that the target value of 
