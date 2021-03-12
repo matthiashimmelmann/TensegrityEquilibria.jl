@@ -127,15 +127,17 @@ function plotWithMakie(vertices, bars, cables, solver, S₀, listOfInternalVaria
 
     sl=Array{Any,1}(undef, length(listOfControlParams))
     for i in 1:length(listOfControlParams)
-        sl[i] = LSlider(scene, range = maximum([0.1,targetParams[i]-2]):0.1:targetParams[i]+3, startvalue = targetParams[i])
+        sl[i] = LSlider(scene, range = maximum([0.1,targetParams[i]-1]):0.025:targetParams[i]+1, startvalue = targetParams[i])
         layout[i+2, 1] = hbox!(
             LText(scene, @lift(string(string(listOfControlParams[i]), ": ", string(to_value($(sl[i].value)))))),
             sl[i],
             width=300
         )
+        # TODO instead of slider enter in Box
         params = @lift begin
-            params=[para for para in $params]
-            params[i]=$(sl[i].value)
+            param = ($params)
+            param[i]=$(sl[i].value)
+            return(param)
         end
     end
 
@@ -148,11 +150,12 @@ function plotWithMakie(vertices, bars, cables, solver, S₀, listOfInternalVaria
     end
     fixedVertices=@lift(($allPossibilities)[1])
     shadowPoints=@lift(($allPossibilities)[2])
+    #TODO shadowPoints contains all minmal configurations => switch between them
 
     foreach(bar->linesegments!(ax, @lift([($fixedVertices)[Int64(bar[1])], ($fixedVertices)[Int64(bar[2])]]) ; linewidth = length(vertices[1])==2 ? 4.0 : 5.0, color=:black), bars)
     foreach(cable->linesegments!(ax, @lift([($fixedVertices)[Int64(cable[1])], ($fixedVertices)[Int64(cable[2])]]) ; color=:blue), cables)
-    scatter!(ax, @lift([f for f in $shadowPoints]); color=:grey, marker = :diamond, alpha=0.1, markersize = length(vertices[1])==2 ? 12 : 60)
-    scatter!(ax, @lift([f for f in $fixedVertices]); color=:red, markersize = length(vertices[1])==2 ? 12 : 60)
+    scatter!(ax, @lift([f for f in $shadowPoints]); color=:grey, marker = :diamond, alpha=0.1, markersize = length(vertices[1])==2 ? 12 : 75)
+    scatter!(ax, @lift([f for f in $fixedVertices]); color=:red, markersize = length(vertices[1])==2 ? 12 : 75)
 
     if(length(vertices[1])==2)
         xlimiter = Node([Inf,-Inf]); xlimiter = @lift(computeMinMax($fixedVertices, $shadowPoints, $xlimiter, 1));
