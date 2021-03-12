@@ -31,20 +31,13 @@ function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Ar
     if(!isempty(listOfInternalVariables))
         F = isempty(listOfControlParams) ? System(∇L; variables = [listOfInternalVariables; delta; lambda]) : System(∇L; variables = [listOfInternalVariables; delta; lambda], parameters = listOfControlParams)
         params₀ = randn(ComplexF64, nparameters(F))
-        try
-            res₀ = isempty(listOfControlParams) ? solve(F) : solve(F; target_parameters = params₀)
-            S₀ = solutions(res₀)
-            H = ParameterHomotopy(F, params₀, params₀)
-            solver, _ = solver_startsolutions(H, S₀)
+        res₀ = isempty(listOfControlParams) ? solve(F) : solve(F; target_parameters = params₀)
 
-            realSol = plotWithMakie(vertices, vcat(unknownBars, knownBars), vcat(unknownCables, knownCables), solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G)
-            return(realSol, listOfInternalVariables)
-        catch e
-            if(!isa(e, InterruptException) && !isa(e, BoundsError))
-                println("Error ", e, " caught. Trying again...")
-                stableEquilibria(vertices, unknownBars, unknownCables, listOfInternalVariables, listOfControlParams, targetParams, knownBars, knownCables)
-            end
-        end
+        S₀ = solutions(res₀)
+        H = ParameterHomotopy(F, params₀, params₀)
+        solver, _ = solver_startsolutions(H, S₀)
+        realSol = plotWithMakie(vertices, vcat(unknownBars, knownBars), vcat(unknownCables, knownCables), solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G)
+        return(realSol, listOfInternalVariables)
     else
         throw(error("Internal variables need to be provided!"))
     end
@@ -158,8 +151,8 @@ function plotWithMakie(vertices, bars, cables, solver, S₀, listOfInternalVaria
 
     foreach(bar->linesegments!(ax, @lift([($fixedVertices)[Int64(bar[1])], ($fixedVertices)[Int64(bar[2])]]) ; linewidth = length(vertices[1])==2 ? 4.0 : 5.0, color=:black), bars)
     foreach(cable->linesegments!(ax, @lift([($fixedVertices)[Int64(cable[1])], ($fixedVertices)[Int64(cable[2])]]) ; color=:blue), cables)
-    scatter!(ax, @lift([f for f in $shadowPoints]); color=:grey, marker = :diamond, alpha=0.3, markersize = length(vertices[1])==2 ? 13 : 45)
-    scatter!(ax, @lift([f for f in $fixedVertices]); color=:red, markersize = length(vertices[1])==2 ? 13 : 45)
+    scatter!(ax, @lift([f for f in $shadowPoints]); color=:grey, marker = :diamond, alpha=0.1, markersize = length(vertices[1])==2 ? 12 : 60)
+    scatter!(ax, @lift([f for f in $fixedVertices]); color=:red, markersize = length(vertices[1])==2 ? 12 : 60)
 
     if(length(vertices[1])==2)
         xlimiter = Node([Inf,-Inf]); xlimiter = @lift(computeMinMax($fixedVertices, $shadowPoints, $xlimiter, 1));
@@ -190,14 +183,36 @@ function computeMinMax(fixedVertices,shadowPoints,limiter,xyz)
     return(limiter)
 end
 
-function start_demo()
+function start_demo(whichTests::Array)
     #Tests
-    @var p[1:2] l
-    display(stableEquilibria([[1,2],[3,4],p],[[1,3,2.5]],[[2,3,1,1.0]],p,[],[],[],[]))
+    if(1 in whichTests)
+        @var p[1:2] l;
+        display(stableEquilibria([[1,2],[3,4],p],[[1,3,2.5]],[[2,3,1,1.0]],p,[],[],[],[]))
+        sleep(10)
+    end
 
-    @var p[1:6] ell
-    display(stableEquilibria([p[1:3],p[4:6],[0,1,0], [sin(2*pi/3),cos(2*pi/3),0], [sin(4*pi/3),cos(4*pi/3),0]],[[1,2,ell]],[[1,3,1,1],[1,4,1,1],[1,5,1,1],[2,3,1,1],[2,4,1,1],[2,5,1,1]],
-        p,[ell],[1.0],[[3,4],[3,5],[4,5]],[]))
+    if(2 in whichTests)
+        @var p[1:6] ell
+        display(stableEquilibria([p[1:3],p[4:6],[0,1,0],[sin(2*pi/3),cos(2*pi/3),0], [sin(4*pi/3),cos(4*pi/3),0]],
+                                 [[1,2,ell]],
+                                 [[1,3,1,1],[1,4,1,1],[1,5,1,1],[2,3,1,1],[2,4,1,1],[2,5,1,1]],
+                                 p,[ell],[1.0],
+                                 [[3,4],[3,5],[4,5]],[])
+        )
+        sleep(10)
+    end
+
+    if(3 in whichTests)
+        @var p[1:7] c
+        display(stableEquilibria([[0,1,0],[sin(2*pi/3),cos(2*pi/3),0],[sin(4*pi/3),cos(4*pi/3),0],[p[1],p[2],p[7]],[p[3],p[4],p[7]],[p[5],p[6],p[7]]],
+                                 [[1,4,3], [2,5,3],[3,6,3]],
+                                 [[1,5,2.5,c],[2,6,2.5,c],[3,4,2.5,c],[4,5,1,1.0],[5,6,1,1.0],[4,6,1,1.0]],
+                                 p[1:6],[c,p[7]],[2.0,2.0],
+                                 [],
+                                 [[1,2],[2,3],[1,3]])
+        )
+        sleep(10)
+    end
 end
 
 end
