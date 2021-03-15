@@ -4,6 +4,6 @@ export functionsForStableEquilibria
 
 include("functionsForStableEquilibria.jl")
 
-functionsForStableEquilibria.start_demo([3])
+functionsForStableEquilibria.start_demo([4])
 
 end

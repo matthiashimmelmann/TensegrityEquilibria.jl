@@ -86,6 +86,7 @@ end
 # and the array of all other minimizers of the energy function Q, that were not yet used, in shadowPoints.
 # WARNING: This cannot deal with Polynomial-type entries of the vertices yet. Only pure variables are allowed.
 function arrangeArray(array, listOfInternalVariables, realSol, listOfControlParams, targetParams)
+    #TODO add polynomial substitution for coordinates on a curve
     subsArray=[[] for sol in realSol]
     for i in 1:length(array)
         helper=[];
@@ -120,17 +121,18 @@ end
 # The shadow vertices are plotted in grey. If there are no parameters given, this plot is static.
 function plotWithMakie(vertices, bars, cables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G)
     params=Node(targetParams)
-    scene, layout = layoutscene(resolution = (1300, 850))
+    scene, layout = layoutscene(resolution = (1400, 850))
     ax = layout[1:length(listOfControlParams)+2, 1] = length(vertices[1])==3 ? LScene(scene, width=750, height=750, camera = cam3d!, raw = false) : LAxis(scene,width=750,height=750)
+    layout[1,2] = hbox!(LText(scene, " "),width=50)
     length(listOfControlParams)>0 ? layout[2, 3] = hbox!(LText(scene, "Control Parameters:"),width=nothing) : nothing
 
     sl=Array{Any,1}(undef, length(listOfControlParams))
     for i in 1:length(listOfControlParams)
-        sl[i] = LSlider(scene, range = maximum([0.1,targetParams[i]-1]):0.05:targetParams[i]+1, startvalue = targetParams[i])
+        sl[i] = LSlider(scene, range = targetParams[i]-1.5:0.05:targetParams[i]+1.5, startvalue = targetParams[i])
         layout[i+2, 3] = hbox!(
-            LText(scene, @lift(string(string(listOfControlParams[i]), ": ", string(to_value($(sl[i].value))))), width=35),
+            LText(scene, @lift(string(string(listOfControlParams[i]), ": ", string(to_value($(sl[i].value))))), width=50),
             sl[i],
-            width=365
+            width=450
         )
         params = @lift begin
             param = ($params)
@@ -141,22 +143,39 @@ function plotWithMakie(vertices, bars, cables, solver, S₀, listOfInternalVaria
 
     allVertices=@lift begin
         target_parameters!(solver, $params)
-        res₀ = solve(solver, S₀, threading = false)
+        res₀ = solve(solver, S₀, threading = true)
         realSol = (map(t->t[1:length(listOfInternalVariables)], filter(en->isempty(filter(x->x<0, en[length(listOfInternalVariables)+1:length(listOfInternalVariables)+length(delta)])) &&
             isLocalMinimum(listOfInternalVariables, listOfControlParams, delta, lambda, L, G)(real.(en), $params), real_solutions(res₀))))
         arrangeArray(vertices, listOfInternalVariables, realSol, listOfControlParams, $params)
     end
 
-    menu = LMenu(scene, options = [string(i) for i in 1:length(allVertices[])], selection="1", direction=:down)
-    layout[1, 3] = hbox!(
-        LText(scene, "Set of Vertices: ", width = 150),
+    #=menu = LMenu(scene, options = [string(i) for i in 1:length(allVertices[])], )
+    box = layout[1, 2] = hbox!(
+        LText(scene, "Select Configuration: ", width = 250),
         menu,
-        tellheight = false,
-        width = 400
+        tellheight = false, width = 400, selection="1"
     )
 
-    fixedVertices=@lift(($allVertices)[$(menu.i_selected) > length($allVertices) ? 1 : $(menu.i_selected)])
-    shadowPoints=@lift(vcat(($allVertices)[1:end .!= $(menu.i_selected)]...))
+    on(allVertices) do av
+        delete!(menu)
+        menu = LMenu(scene, options = [string(i) for i in 1:length(allVertices[])], )
+        box[1,2] = menu
+    end=#
+
+    box = layout[1,3] = vbox!(
+        LText(scene, "Press the 'n' Key to iterate through\nthe different vertex configurations",color=:teal,halign=:center, valign=:center),
+        height=250,
+        width = 400
+    )
+    box[1,1] = LRect(scene, color =:transparent, strokecolor=:red,width=400,height=80,valign=:top,halign=:left)
+
+    currentIndex = Node(1)
+    on(scene.events.unicode_input) do input
+        'n' in input ? (currentIndex[]-1==0 ? currentIndex[]=length(allVertices[]) : currentIndex[]=currentIndex[]-1) : nothing
+    end
+
+    fixedVertices=@lift(($allVertices)[$(currentIndex) > length($allVertices) ? 1 : $(currentIndex)])
+    shadowPoints=@lift(vcat(($allVertices)[1:end]...))
 
     foreach(bar->linesegments!(ax, @lift([($fixedVertices)[Int64(bar[1])], ($fixedVertices)[Int64(bar[2])]]) ; linewidth = length(vertices[1])==2 ? 4.0 : 5.0, color=:black), bars)
     foreach(cable->linesegments!(ax, @lift([($fixedVertices)[Int64(cable[1])], ($fixedVertices)[Int64(cable[2])]]) ; color=:blue), cables)
@@ -166,11 +185,6 @@ function plotWithMakie(vertices, bars, cables, solver, S₀, listOfInternalVaria
         xlimiter = Node([Inf,-Inf]); xlimiter = @lift(computeMinMax($fixedVertices, $shadowPoints, $xlimiter, 1));
         ylimiter = Node([Inf,-Inf]); ylimiter = @lift(computeMinMax($fixedVertices, $shadowPoints, $ylimiter, 2));
         @lift(limits!(ax, FRect((($xlimiter)[1]-0.5,($ylimiter)[1]-0.5), (($xlimiter)[2]-($xlimiter)[1]+1.0,($ylimiter)[2]-($ylimiter)[1]+1.0))))
-    elseif(length(vertices[1])==3)
-        xlimiter = Node([Inf,-Inf]); xlimiter = @lift(computeMinMax($fixedVertices, $shadowPoints, $xlimiter, 1));
-        ylimiter = Node([Inf,-Inf]); ylimiter = @lift(computeMinMax($fixedVertices, $shadowPoints, $ylimiter, 2));
-        zlimiter = Node([Inf,-Inf]); zlimiter = @lift(computeMinMax($fixedVertices, $shadowPoints, $zlimiter, 3));
-        #TODO set limits in 3D: How?
     end
     display(scene)
     return(fixedVertices[])
@@ -193,6 +207,12 @@ end
 
 function start_demo(whichTests::Array)
     #Tests
+    if(0 in whichTests)
+        @var p[1:4];
+        display(stableEquilibria([[1.0,0],[2.0,1/4],p[1:2],p[3:4]],[[1,3,1]],[[2,3,1,1],[3,4,1,1]],p[1:2],p[3:4],[-0.0,-0.0],[],[]))
+        sleep(1)
+    end
+
     if(1 in whichTests)
         @var p[1:2] l;
         display(stableEquilibria([[1,2],[3,4],p],[[1,3,l]],[[2,3,1,1]],p,[l],[2.5],[],[]))
@@ -215,7 +235,19 @@ function start_demo(whichTests::Array)
         display(stableEquilibria([[0,1,0],[sin(2*pi/3),cos(2*pi/3),0],[sin(4*pi/3),cos(4*pi/3),0],[p[1],p[2],p[7]],[p[3],p[4],p[7]],[p[5],p[6],p[7]]],
                                  [[1,4,3], [2,5,3],[3,6,3]],
                                  [[1,5,2.5,c],[2,6,2.5,c],[3,4,2.5,c],[4,5,1,1.0],[5,6,1,1.0],[4,6,1,1.0]],
-                                 p[1:6],[c,p[7]],[2.0,2.0],
+                                 p[1:6],[c,p[7]],[2.0,2.75],
+                                 [],
+                                 [[1,2],[2,3],[1,3]])
+        )
+        sleep(1)
+    end
+
+    if(4 in whichTests)
+        @var p[1:9]
+        display(stableEquilibria([[0,1,0],[sin(2*pi/3),cos(2*pi/3),0],[sin(4*pi/3),cos(4*pi/3),0],[p[1],p[2],p[3]],[p[4],p[5],p[6]],[p[7],p[8],p[9]]],
+                                 [[1,4,3], [2,5,3],[3,6,3]],
+                                 [[1,5,2.5,1.0],[2,6,2.5,1.0],[3,4,2.5,1.0],[4,5,1,1.0],[5,6,1,1.0],[4,6,1,1.0]],
+                                 p[1:7],p[8:9],[0.5,2.4],
                                  [],
                                  [[1,2],[2,3],[1,3]])
         )
