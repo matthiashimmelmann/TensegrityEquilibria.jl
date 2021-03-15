@@ -36,7 +36,8 @@ The input let's us deduce that
 <img src="https://render.githubusercontent.com/render/math?math=b_{ij}=\ell_{ij}"> is also <img src="https://render.githubusercontent.com/render/math?math=1">. The output of the plotting routine would then be the following image:
 
 <p align="center">
-  <img src="https://user-images.githubusercontent.com/65544132/110790981-f8156880-8271-11eb-8e3d-6e157604a113.jpg">
+  <img src="https://user-images.githubusercontent.com/65544132/111198673-1ce64480-85c0-11eb-814b-724268b61fa6.jpg">
 </p>
+
 
 The vertices of this framework are displayed in red, the rigid bars are black and the elastic cables are portrayed in blue. If there were any visibly different solutions to the polynomial system, in this case obtained by mirroring the unknown vertices <img src="https://render.githubusercontent.com/render/math?math=p(1)"> and <img src="https://render.githubusercontent.com/render/math?math=p(2)"> in the top and bottom of the image respectively, they would be transparently plotted in grey as "shadow vertices".
