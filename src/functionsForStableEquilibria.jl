@@ -167,7 +167,7 @@ function plotWithMakie(vertices, bars, cables, solver, S₀, listOfInternalVaria
         height=250,
         width = 400
     )
-    box[1,1] = LRect(scene, color =:transparent, strokecolor=:red,width=400,height=80,valign=:top,halign=:left)
+    box[1,1] = LRect(scene, color =:transparent, strokecolor=:grey,width=400,height=80,valign=:top,halign=:left)
 
     currentIndex = Node(1)
     on(scene.events.unicode_input) do input
@@ -179,7 +179,7 @@ function plotWithMakie(vertices, bars, cables, solver, S₀, listOfInternalVaria
 
     foreach(bar->linesegments!(ax, @lift([($fixedVertices)[Int64(bar[1])], ($fixedVertices)[Int64(bar[2])]]) ; linewidth = length(vertices[1])==2 ? 4.0 : 5.0, color=:black), bars)
     foreach(cable->linesegments!(ax, @lift([($fixedVertices)[Int64(cable[1])], ($fixedVertices)[Int64(cable[2])]]) ; color=:blue), cables)
-    scatter!(ax, @lift([f for f in $shadowPoints]); color=:grey, marker = :diamond, alpha=0.1, markersize = length(vertices[1])==2 ? 12 : 75)
+    scatter!(ax, @lift([f for f in $shadowPoints]); color=:lightgrey, marker = :diamond, alpha=0.1, markersize = length(vertices[1])==2 ? 12 : 75)
     scatter!(ax, @lift([f for f in $fixedVertices]); color=:red, markersize = length(vertices[1])==2 ? 12 : 75)
     if(length(vertices[1])==2)
         xlimiter = Node([Inf,-Inf]); xlimiter = @lift(computeMinMax($fixedVertices, $shadowPoints, $xlimiter, 1));
@@ -230,6 +230,17 @@ function start_demo(whichTests::Array)
         sleep(1)
     end
 
+    if(2.1 in whichTests)
+        @var p[1:6]
+        display(stableEquilibria([p[1:3],p[4:6],[0,1,0],[sin(2*pi/3),cos(2*pi/3),0], [sin(4*pi/3),cos(4*pi/3),0]],
+                                 [[1,2,2.0]],
+                                 [[1,3,1,1],[1,4,1,1],[1,5,1,1],[2,3,1,1],[2,4,1,1],[2,5,1,1]],
+                                 p[4:6],p[1:3],[0.0,-1.0,0.0],
+                                 [[3,4],[3,5],[4,5]],[])
+        )
+        sleep(1)
+    end
+
     if(3 in whichTests)
         @var p[1:7] c
         display(stableEquilibria([[0,1,0],[sin(2*pi/3),cos(2*pi/3),0],[sin(4*pi/3),cos(4*pi/3),0],[p[1],p[2],p[7]],[p[3],p[4],p[7]],[p[5],p[6],p[7]]],
@@ -242,7 +253,7 @@ function start_demo(whichTests::Array)
         sleep(1)
     end
 
-    if(4 in whichTests)
+    if(3.1 in whichTests)
         @var p[1:9]
         display(stableEquilibria([[0,1,0],[sin(2*pi/3),cos(2*pi/3),0],[sin(4*pi/3),cos(4*pi/3),0],[p[1],p[2],p[3]],[p[4],p[5],p[6]],[p[7],p[8],p[9]]],
                                  [[1,4,3], [2,5,3],[3,6,3]],
