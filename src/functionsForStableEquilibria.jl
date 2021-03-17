@@ -2,13 +2,13 @@ module functionsForStableEquilibria
 
 export stableEquilibria, start_demo
 
-using LinearAlgebra, HomotopyContinuation, GLMakie, AbstractPlotting, AbstractPlotting.MakieLayout, Printf
+using LinearAlgebra, HomotopyContinuation, GLMakie, AbstractPlotting, Printf
 
 #=
 @input vertices::[[p_11,p_12,...], ..., [p_m1,p_m2,...]], unknownBars::[[i,j,l_ij],...], unknowncables::[[i,j,r_ij,e_ij]] with i<j
 Calculate configurations in equilibrium for the given tensegrity framework
 =#
-function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Array, listOfInternalVariables::Array{Variable,1}, listOfControlParams::Array, targetParams::Array, knownBars::Array, knownCables::Array)
+function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Array, listOfInternalVariables::Array{Variable,1}, listOfControlParams::Array, targetParams::Array, knownBars::Array, knownCables::Array, timestamps=[])
     assertCorrectInput(vertices, unknownBars, unknownCables, listOfInternalVariables, listOfControlParams, targetParams, knownBars, knownCables)
 
     @var delta[1:length(unknownCables)]
@@ -37,8 +37,13 @@ function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Ar
         S₀ = solutions(res₀)
         H = ParameterHomotopy(F, params₀, params₀)
         solver, _ = solver_startsolutions(H, S₀)
-        realSol = plotWithMakie(vertices, unknownBars, knownBars, unknownCables, knownCables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G, cp)
-        return(realSol, listOfInternalVariables)
+        if(isempty(timestamps))
+            realSol = plotWithMakie(vertices, unknownBars, knownBars, unknownCables, knownCables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G, cp)
+            return(realSol, listOfInternalVariables)
+        else
+            realSol = animateTensegrity(vertices, unknownBars, knownBars, unknownCables, knownCables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G, cp,timestamps)
+            return(realSol, listOfInternalVariables)
+        end
     else
         throw(error("Internal variables need to be provided!"))
     end
@@ -125,18 +130,14 @@ function plotWithMakie(vertices, unknownBars, knownBars, unknownCables, knownCab
     bars=vcat(unknownBars,knownBars); cables=vcat(unknownCables,knownCables)
     params=Node(targetParams)
     scene, layout = layoutscene(resolution = (1400, 850))
-    ax = layout[1:length(listOfControlParams)+2, 1] = length(vertices[1])==3 ? LScene(scene, width=750, height=750, camera = cam3d!, raw = false) : LAxis(scene,width=750,height=750)
-    layout[1,2] = hbox!(LText(scene, " "),width=50)
-    length(listOfControlParams)>0 ? layout[2, 3] = hbox!(LText(scene, "Control Parameters:"),width=nothing) : nothing
+    ax = layout[1:length(listOfControlParams)+2, 1] = length(vertices[1])==3 ? LScene(scene, width=750, height=750, camera = cam3d!, raw = false) : MakieLayout.Axis(scene,width=750,height=750)
+    #layout[1,2] =
+    #length(listOfControlParams)>0 ? layout[2, 3] = "Control Parameters: " : nothing
 
     sl=Array{Any,1}(undef, length(listOfControlParams))
     for i in 1:length(listOfControlParams)
-        sl[i] = LSlider(scene, range = targetParams[i]-2:0.05:targetParams[i]+2, startvalue = targetParams[i])
-        layout[i+2, 3] = hbox!(
-            LText(scene, @lift(string(string(listOfControlParams[i]), ": ", string(to_value($(sl[i].value))))), width=50),
-            sl[i],
-            width=450
-        )
+        sl[i] = Slider(scene, range = targetParams[i]-2:0.05:targetParams[i]+2, startvalue = targetParams[i], width=380)
+        layout[i+2, 3] = sl[i]
         params = @lift begin
             param = ($params)
             param[i]=$(sl[i].value)
@@ -165,12 +166,12 @@ function plotWithMakie(vertices, unknownBars, knownBars, unknownCables, knownCab
         box[1,2] = menu
     end=#
 
-    box = layout[1,3] = vbox!(
-        LText(scene, "Press the 'n' Key to iterate through\nthe different vertex configurations",color=:teal,halign=:center, valign=:center),
+    #=box = layout[1,3] = vbox!(
+        Text(scene, "Press the 'n' Key to iterate through\nthe different vertex configurations",color=:teal,halign=:center, valign=:center),
         height=250,
         width = 400
     )
-    box[1,1] = LRect(scene, color =:transparent, strokecolor=:grey,width=400,height=80,valign=:top,halign=:left)
+    box[1,1] = LRect(scene, color =:transparent, strokecolor=:grey,width=400,height=80,valign=:top,halign=:left)=#
 
     currentIndex = Node(1)
     on(scene.events.unicode_input) do input
@@ -245,7 +246,7 @@ function catastrophePoints(vertices, internalVariables, controlParameters, targe
         rand_lin_space = let
             () -> randn(nparameters(P))
         end
-        N = 2000
+        N = 500
         alg_catastrophe_points = solve(
             P,
             solutions(res),
@@ -260,11 +261,55 @@ function catastrophePoints(vertices, internalVariables, controlParameters, targe
     return(cp)
 end
 
+function animateTensegrity(vertices, unknownBars, knownBars, unknownCables, knownCables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G, cp, timestamps)
+    bars=vcat(unknownBars,knownBars); cables=vcat(unknownCables,knownCables)
+    params=Node(targetParams)
+    scene, layout = layoutscene(resolution = (850, 850))
+    ax = layout[1:length(listOfControlParams)+2, 1] = length(vertices[1])==3 ? LScene(scene, width=750, height=750, camera = cam3d!, raw = false) : Axis(scene,width=750,height=750)
+
+    allVertices=@lift begin
+        target_parameters!(solver, $params)
+        res₀ = solve(solver, S₀, threading = true)
+        realSol = (map(t->t[1:length(listOfInternalVariables)], filter(en->isempty(filter(x->x<0, en[length(listOfInternalVariables)+1:length(listOfInternalVariables)+length(delta)])) &&
+            isLocalMinimum(listOfInternalVariables, listOfControlParams, delta, lambda, L, G)(real.(en), $params), real_solutions(res₀))))
+        arrangeArray(vertices, listOfInternalVariables, realSol, listOfControlParams, $params)
+    end
+    currentIndex=Node(1)
+    fixedVertices=@lift(($allVertices)[$(currentIndex) > length($allVertices) ? 1 : $(currentIndex)])
+    shadowPoints=@lift(vcat(($allVertices)[1:end]...))
+
+    foreach(bar->linesegments!(ax, @lift([($fixedVertices)[Int64(bar[1])], ($fixedVertices)[Int64(bar[2])]]) ; linewidth = length(vertices[1])==2 ? 4.0 : 5.0, color=:black), bars)
+    foreach(cable->linesegments!(ax, @lift([($fixedVertices)[Int64(cable[1])], ($fixedVertices)[Int64(cable[2])]]) ; color=:blue), cables)
+    scatter!(ax, @lift([f for f in $shadowPoints]); color=:lightgrey, marker = :diamond, alpha=0.1, markersize = length(vertices[1])==2 ? 12 : 75)
+    scatter!(ax, @lift([f for f in $fixedVertices]); color=:red, markersize = length(vertices[1])==2 ? 12 : 75)
+    scatter!(ax, cp; alpha=0.1, markersize=0.5, color=:teal)
+    if(length(vertices[1])==2)
+        xlimiter = Node([Inf,-Inf]); xlimiter = @lift(computeMinMax($fixedVertices, $shadowPoints, $xlimiter, 1));
+        ylimiter = Node([Inf,-Inf]); ylimiter = @lift(computeMinMax($fixedVertices, $shadowPoints, $ylimiter, 2));
+        @lift(limits!(ax, FRect((($xlimiter)[1]-0.5,($ylimiter)[1]-0.5), (($xlimiter)[2]-($xlimiter)[1]+1.0,($ylimiter)[2]-($ylimiter)[1]+1.0))))
+    end
+
+    record(scene, "time_animation.mp4", timestamps; framerate = 30) do t
+        params[] = t
+    end
+    display(scene)
+    return(fixedVertices[])
+end
+
 function start_demo(whichTests::Array)
     #Tests
     if(0 in whichTests)
         @var p[1:4];
         display(stableEquilibria([[1.0,0],[2.0,1/4],p[1:2],p[3:4]],[[1,3,0.5]],[[2,3,1/4,1/4],[3,4,1/4,1/4]],p[1:2],p[3:4],[0.0,0.0],[],[]))
+        sleep(1)
+    end
+
+    if(0.1 in whichTests)
+        t=0:1/15:2*pi
+        timestamps=[[0.0,sin(time)] for time in t]
+        display(timestamps)
+        @var p[1:4];
+        display(stableEquilibria([[1.0,0],[2.0,1/4],p[1:2],p[3:4]],[[1,3,0.5]],[[2,3,1/4,1/4],[3,4,1/4,1/4]],p[1:2],p[3:4],[0.0,0.0],[],[],timestamps))
         sleep(1)
     end
 
