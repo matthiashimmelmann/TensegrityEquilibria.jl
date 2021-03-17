@@ -28,6 +28,7 @@ function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Ar
     @var lambda[1:length(G)]
     L = Q + lambda'*G
     ∇L = differentiate(L, [listOfInternalVariables; delta; lambda])
+    cp = catastrophePoints([entry for entry in vertices], listOfInternalVariables, listOfControlParams, targetParams, unknownCables, unknownBars)
     if(!isempty(listOfInternalVariables))
         F = isempty(listOfControlParams) ? System(∇L; variables = [listOfInternalVariables; delta; lambda]) : System(∇L; variables = [listOfInternalVariables; delta; lambda], parameters = listOfControlParams)
         params₀ = randn(ComplexF64, nparameters(F))
@@ -36,7 +37,7 @@ function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Ar
         S₀ = solutions(res₀)
         H = ParameterHomotopy(F, params₀, params₀)
         solver, _ = solver_startsolutions(H, S₀)
-        realSol = plotWithMakie(vertices, vcat(unknownBars, knownBars), vcat(unknownCables, knownCables), solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G)
+        realSol = plotWithMakie(vertices, unknownBars, knownBars, unknownCables, knownCables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G, cp)
         return(realSol, listOfInternalVariables)
     else
         throw(error("Internal variables need to be provided!"))
@@ -96,6 +97,7 @@ function arrangeArray(array, listOfInternalVariables, realSol, listOfControlPara
                 if(index==nothing || typeof(index) == Nothing)
                     index=findfirst(en->en==array[i][j], listOfControlParams)
                     if(index==nothing || typeof(index) == Nothing)
+                        display(array[i][j])
                         throw(error("The variable in the array is neither a control nor an internal parameter."))
                     end
                     push!(helper,targetParams[index])
@@ -119,7 +121,8 @@ end
 
 # Creates a dynamic parametric plot of the vertices (red) with corresponding bars (black) and cables (blue).
 # The shadow vertices are plotted in grey. If there are no parameters given, this plot is static.
-function plotWithMakie(vertices, bars, cables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G)
+function plotWithMakie(vertices, unknownBars, knownBars, unknownCables, knownCables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G, cp)
+    bars=vcat(unknownBars,knownBars); cables=vcat(unknownCables,knownCables)
     params=Node(targetParams)
     scene, layout = layoutscene(resolution = (1400, 850))
     ax = layout[1:length(listOfControlParams)+2, 1] = length(vertices[1])==3 ? LScene(scene, width=750, height=750, camera = cam3d!, raw = false) : LAxis(scene,width=750,height=750)
@@ -128,7 +131,7 @@ function plotWithMakie(vertices, bars, cables, solver, S₀, listOfInternalVaria
 
     sl=Array{Any,1}(undef, length(listOfControlParams))
     for i in 1:length(listOfControlParams)
-        sl[i] = LSlider(scene, range = targetParams[i]-1.5:0.05:targetParams[i]+1.5, startvalue = targetParams[i])
+        sl[i] = LSlider(scene, range = targetParams[i]-2:0.05:targetParams[i]+2, startvalue = targetParams[i])
         layout[i+2, 3] = hbox!(
             LText(scene, @lift(string(string(listOfControlParams[i]), ": ", string(to_value($(sl[i].value))))), width=50),
             sl[i],
@@ -181,6 +184,7 @@ function plotWithMakie(vertices, bars, cables, solver, S₀, listOfInternalVaria
     foreach(cable->linesegments!(ax, @lift([($fixedVertices)[Int64(cable[1])], ($fixedVertices)[Int64(cable[2])]]) ; color=:blue), cables)
     scatter!(ax, @lift([f for f in $shadowPoints]); color=:lightgrey, marker = :diamond, alpha=0.1, markersize = length(vertices[1])==2 ? 12 : 75)
     scatter!(ax, @lift([f for f in $fixedVertices]); color=:red, markersize = length(vertices[1])==2 ? 12 : 75)
+    scatter!(ax, cp; alpha=0.1, markersize=0.5, color=:teal)
     if(length(vertices[1])==2)
         xlimiter = Node([Inf,-Inf]); xlimiter = @lift(computeMinMax($fixedVertices, $shadowPoints, $xlimiter, 1));
         ylimiter = Node([Inf,-Inf]); ylimiter = @lift(computeMinMax($fixedVertices, $shadowPoints, $ylimiter, 2));
@@ -205,11 +209,62 @@ function computeMinMax(fixedVertices,shadowPoints,limiter,xyz)
     return(limiter)
 end
 
+function catastrophePoints(vertices, internalVariables, controlParameters, targetParams, unknownCables, unknownBars)
+    cp = let
+        #TODO find control node
+        @var delta[1:length(unknownCables)]
+        B, C, G = [], [], []
+        for index in 1:length(unknownBars)
+            l_ij=unknownBars[index][3]; p_i=vertices[Int64(unknownBars[index][1])]; p_j=vertices[Int64(unknownBars[index][2])];
+            push!(B, sum((p_i-p_j).^2)-l_ij^2)
+        end
+        for index in 1:length(unknownCables)
+            r_ij=unknownCables[index][3]; p_i=vertices[Int64(unknownCables[index][1])]; p_j=vertices[Int64(unknownCables[index][2])]; e_ij=unknownCables[index][4];
+            push!(C, sum((p_i-p_j).^2)-delta[index]^2)
+        end
+        append!(G,B); append!(G,C);
+        e = map(t->t[4], unknownCables); r = map(t->t[3], unknownCables);
+        Q = sum(e.*(r-delta).^2/2)
+
+        @var lambda[1:length(G)]
+        L = Q + lambda'*G
+        ∇L = differentiate(L, [internalVariables; delta; lambda])
+        @var v[1:length(∇L)]
+        α = randn(length(∇L))
+        J_L_v = [differentiate(∇L, [internalVariables; delta; lambda]) * v; α'v - 1]
+        @var a[1:length(controlParameters),1:length(controlParameters)-1] b[1:length(controlParameters)-1]
+        L1 = a' * controlParameters + b
+        P = System(
+          [∇L; J_L_v; L1];
+          variables = [controlParameters; internalVariables; delta; lambda; v],
+          parameters = [collect(Iterators.flatten(a)); b]
+        )
+        startParams=randn(ComplexF64, nparameters(P))
+        display(P)
+        res=solve(P, target_parameters=startParams)
+        rand_lin_space = let
+            () -> randn(nparameters(P))
+        end
+        N = 2000
+        alg_catastrophe_points = solve(
+            P,
+            solutions(res),
+            start_parameters = startParams,
+            target_parameters = [rand_lin_space() for i = 1:N],
+            transform_result = (r, p) -> real_solutions(r),
+            flatten = true
+        )
+        filter!(p -> all(k->k ≥ 0, p[length(controlParameters)+length(internalVariables)+1:length(controlParameters)+length(internalVariables)+length(delta)]), alg_catastrophe_points);
+        cp = map(p -> length(vertices[1])==2 ? Point2f0(p[1], p[2]) : Point3f0(p[1], p[2], p[3]), alg_catastrophe_points)
+    end
+    return(cp)
+end
+
 function start_demo(whichTests::Array)
     #Tests
     if(0 in whichTests)
         @var p[1:4];
-        display(stableEquilibria([[1.0,0],[2.0,1/4],p[1:2],p[3:4]],[[1,3,1]],[[2,3,1,1],[3,4,1,1]],p[1:2],p[3:4],[-0.0,-0.0],[],[]))
+        display(stableEquilibria([[1.0,0],[2.0,1/4],p[1:2],p[3:4]],[[1,3,0.5]],[[2,3,1/4,1/4],[3,4,1/4,1/4]],p[1:2],p[3:4],[0.0,0.0],[],[]))
         sleep(1)
     end
 
