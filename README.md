@@ -43,4 +43,4 @@ The input let's us deduce that
 
 The vertices of this framework are displayed in red, the rigid bars are black and the elastic cables are portrayed in blue. If there were any visibly different solutions to the polynomial system, in this case obtained by mirroring the unknown vertices <img src="https://render.githubusercontent.com/render/math?math=p(1)"> and <img src="https://render.githubusercontent.com/render/math?math=p(2)"> in the top and bottom of the image respectively, they would be transparently plotted in grey as "shadow vertices".
 
-Finally, the catastrophe set corresponding to our choice of control parameters is samples and plotted. This hypersurface depicts the region, where discontinuous changes of the framework might happen.
+Finally, the catastrophe set corresponding to our choice of control parameters is samples and plotted. This hypersurface depicts the region, where discontinuous changes of the framework might happen. However, this does not yet work for larger or 3D frameworks.
