@@ -28,7 +28,7 @@ function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Ar
     @var lambda[1:length(G)]
     L = Q + lambda'*G
     ∇L = differentiate(L, [listOfInternalVariables; delta; lambda])
-    cp = catastrophePoints([entry for entry in vertices], listOfInternalVariables, listOfControlParams, targetParams, unknownCables, unknownBars)
+    catastrophe = catastrophePoints([entry for entry in vertices], listOfInternalVariables, listOfControlParams, targetParams, unknownCables, unknownBars)
     if(!isempty(listOfInternalVariables))
         F = isempty(listOfControlParams) ? System(∇L; variables = [listOfInternalVariables; delta; lambda]) : System(∇L; variables = [listOfInternalVariables; delta; lambda], parameters = listOfControlParams)
         params₀ = randn(ComplexF64, nparameters(F))
@@ -38,10 +38,10 @@ function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Ar
         H = ParameterHomotopy(F, params₀, params₀)
         solver, _ = solver_startsolutions(H, S₀)
         if(isempty(timestamps))
-            realSol = plotWithMakie(vertices, unknownBars, knownBars, unknownCables, knownCables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G, cp)
+            realSol = plotWithMakie(vertices, unknownBars, knownBars, unknownCables, knownCables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G, catastrophe)
             return(realSol, listOfInternalVariables)
         else
-            realSol = animateTensegrity(vertices, unknownBars, knownBars, unknownCables, knownCables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G, cp,timestamps)
+            realSol = animateTensegrity(vertices, unknownBars, knownBars, unknownCables, knownCables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G, catastrophe, timestamps)
             return(realSol, listOfInternalVariables)
         end
     else
@@ -102,7 +102,6 @@ function arrangeArray(array, listOfInternalVariables, realSol, listOfControlPara
                 if(index==nothing || typeof(index) == Nothing)
                     index=findfirst(en->en==array[i][j], listOfControlParams)
                     if(index==nothing || typeof(index) == Nothing)
-                        display(array[i][j])
                         throw(error("The variable in the array is neither a control nor an internal parameter."))
                     end
                     push!(helper,targetParams[index])
@@ -126,21 +125,33 @@ end
 
 # Creates a dynamic parametric plot of the vertices (red) with corresponding bars (black) and cables (blue).
 # The shadow vertices are plotted in grey. If there are no parameters given, this plot is static.
-function plotWithMakie(vertices, unknownBars, knownBars, unknownCables, knownCables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G, cp)
+function plotWithMakie(vertices, unknownBars, knownBars, unknownCables, knownCables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G, catastrophePoints)
     bars=vcat(unknownBars,knownBars); cables=vcat(unknownCables,knownCables)
     params=Node(targetParams)
     scene, layout = layoutscene(resolution = (1400, 850))
-    ax = layout[1:length(listOfControlParams)+2, 1] = length(vertices[1])==3 ? LScene(scene, width=750, height=750, camera = cam3d!, raw = false) : MakieLayout.Axis(scene,width=750,height=750)
-    #layout[1,2] =
-    #length(listOfControlParams)>0 ? layout[2, 3] = "Control Parameters: " : nothing
+    ax = layout[1:4, 1] = length(vertices[1])==3 ? LScene(scene, width=750, height=750, camera = cam3d!, raw = false) : MakieLayout.Axis(scene,width=750,height=750)
 
-    sl=Array{Any,1}(undef, length(listOfControlParams))
+    layout[1:4, 2] = Box(scene, color = :white, strokecolor = :transparent, width=50)
+    layout[1, 3] = Box(scene, color = :white, strokecolor = :transparent, height=50)
+    layout[2, 3] = Box(scene, color = (:white, 0.1), strokecolor = :red, height=80, width=400)
+    layout[2, 3] = Label(scene, "Press the 'n' Key to iterate through\nthe different vertex configurations", textsize = 20, halign=:center, valign=:center, color=:teal)
+    layout[3, 3] = Box(scene, color = (:white, 0.1), strokecolor = :transparent, height=100)
+    layout[3, 3] = Label(scene, "Control Parameters:", textsize = 20, halign=:left, valign=:bottom)
+
+    lsgrid = labelslidergrid!(
+        scene,
+        [string(string(para),": ") for para in listOfControlParams],
+        [targetParams[i]-2:0.05:targetParams[i]+2 for i in 1:length(targetParams)];
+        formats = x -> "$(x==(round(x, digits = 1)) ? string(string(x),"0") : string(x))",
+        width = 400,
+        valign=:top
+    )
+    layout[4,3]=lsgrid.layout
     for i in 1:length(listOfControlParams)
-        sl[i] = Slider(scene, range = targetParams[i]-2:0.05:targetParams[i]+2, startvalue = targetParams[i], width=380)
-        layout[i+2, 3] = sl[i]
+        set_close_to!(lsgrid.sliders[i], targetParams[i])
         params = @lift begin
             param = ($params)
-            param[i]=$(sl[i].value)
+            param[i]=$(lsgrid.sliders[i].value)
             return(param)
         end
     end
@@ -152,26 +163,6 @@ function plotWithMakie(vertices, unknownBars, knownBars, unknownCables, knownCab
             isLocalMinimum(listOfInternalVariables, listOfControlParams, delta, lambda, L, G)(real.(en), $params), real_solutions(res₀))))
         arrangeArray(vertices, listOfInternalVariables, realSol, listOfControlParams, $params)
     end
-
-    #=menu = LMenu(scene, options = [string(i) for i in 1:length(allVertices[])], )
-    box = layout[1, 2] = hbox!(
-        LText(scene, "Select Configuration: ", width = 250),
-        menu,
-        tellheight = false, width = 400, selection="1"
-    )
-
-    on(allVertices) do av
-        delete!(menu)
-        menu = LMenu(scene, options = [string(i) for i in 1:length(allVertices[])], )
-        box[1,2] = menu
-    end=#
-
-    #=box = layout[1,3] = vbox!(
-        Text(scene, "Press the 'n' Key to iterate through\nthe different vertex configurations",color=:teal,halign=:center, valign=:center),
-        height=250,
-        width = 400
-    )
-    box[1,1] = LRect(scene, color =:transparent, strokecolor=:grey,width=400,height=80,valign=:top,halign=:left)=#
 
     currentIndex = Node(1)
     on(scene.events.unicode_input) do input
@@ -185,7 +176,8 @@ function plotWithMakie(vertices, unknownBars, knownBars, unknownCables, knownCab
     foreach(cable->linesegments!(ax, @lift([($fixedVertices)[Int64(cable[1])], ($fixedVertices)[Int64(cable[2])]]) ; color=:blue), cables)
     scatter!(ax, @lift([f for f in $shadowPoints]); color=:lightgrey, marker = :diamond, alpha=0.1, markersize = length(vertices[1])==2 ? 12 : 75)
     scatter!(ax, @lift([f for f in $fixedVertices]); color=:red, markersize = length(vertices[1])==2 ? 12 : 75)
-    scatter!(ax, cp; alpha=0.1, markersize=0.5, color=:teal)
+    display(catastrophePoints)
+    !isempty(catastrophePoints) ? scatter!(ax, cp; alpha=0.1, markersize=0.5, color=:teal) : nothing
     if(length(vertices[1])==2)
         xlimiter = Node([Inf,-Inf]); xlimiter = @lift(computeMinMax($fixedVertices, $shadowPoints, $xlimiter, 1));
         ylimiter = Node([Inf,-Inf]); ylimiter = @lift(computeMinMax($fixedVertices, $shadowPoints, $ylimiter, 2));
@@ -241,22 +233,27 @@ function catastrophePoints(vertices, internalVariables, controlParameters, targe
           parameters = [collect(Iterators.flatten(a)); b]
         )
         startParams=randn(ComplexF64, nparameters(P))
-        display(P)
-        res=solve(P, target_parameters=startParams)
-        rand_lin_space = let
-            () -> randn(nparameters(P))
+        try
+            res=solve(P, target_parameters=startParams)
+            rand_lin_space = let
+                () -> randn(nparameters(P))
+            end
+            N = 2500
+            alg_catastrophe_points = solve(
+                P,
+                solutions(res),
+                start_parameters = startParams,
+                target_parameters = [rand_lin_space() for i = 1:N],
+                transform_result = (r, p) -> real_solutions(r),
+                flatten = true
+            )
+            filter!(p -> all(k->k ≥ 0, p[length(controlParameters)+length(internalVariables)+1:length(controlParameters)+length(internalVariables)+length(delta)]), alg_catastrophe_points);
+            cp = map(p -> length(vertices[1])==2 ? Point2f0(p[1], p[2]) : Point3f0(p[1], p[2], p[3]), alg_catastrophe_points)
+            return(cp)
+        catch e
+            display(e)
         end
-        N = 500
-        alg_catastrophe_points = solve(
-            P,
-            solutions(res),
-            start_parameters = startParams,
-            target_parameters = [rand_lin_space() for i = 1:N],
-            transform_result = (r, p) -> real_solutions(r),
-            flatten = true
-        )
-        filter!(p -> all(k->k ≥ 0, p[length(controlParameters)+length(internalVariables)+1:length(controlParameters)+length(internalVariables)+length(delta)]), alg_catastrophe_points);
-        cp = map(p -> length(vertices[1])==2 ? Point2f0(p[1], p[2]) : Point3f0(p[1], p[2], p[3]), alg_catastrophe_points)
+        return([])
     end
     return(cp)
 end
