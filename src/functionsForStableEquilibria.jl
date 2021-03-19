@@ -176,8 +176,7 @@ function plotWithMakie(vertices, unknownBars, knownBars, unknownCables, knownCab
     foreach(cable->linesegments!(ax, @lift([($fixedVertices)[Int64(cable[1])], ($fixedVertices)[Int64(cable[2])]]) ; color=:blue), cables)
     scatter!(ax, @lift([f for f in $shadowPoints]); color=:lightgrey, marker = :diamond, alpha=0.1, markersize = length(vertices[1])==2 ? 12 : 75)
     scatter!(ax, @lift([f for f in $fixedVertices]); color=:red, markersize = length(vertices[1])==2 ? 12 : 75)
-    display(catastrophePoints)
-    !isempty(catastrophePoints) ? scatter!(ax, cp; alpha=0.1, markersize=0.5, color=:teal) : nothing
+    !isempty(catastrophePoints) ? scatter!(ax, catastrophePoints; alpha=0.1, markersize=0.5, color=:teal) : nothing
     if(length(vertices[1])==2)
         xlimiter = Node([Inf,-Inf]); xlimiter = @lift(computeMinMax($fixedVertices, $shadowPoints, $xlimiter, 1));
         ylimiter = Node([Inf,-Inf]); ylimiter = @lift(computeMinMax($fixedVertices, $shadowPoints, $ylimiter, 2));
@@ -234,15 +233,16 @@ function catastrophePoints(vertices, internalVariables, controlParameters, targe
         )
         startParams=randn(ComplexF64, nparameters(P))
         try
-            res=solve(P, target_parameters=startParams)
+            res = monodromy_solve(P)
+            #res=solve(P, target_parameters=startParams)
             rand_lin_space = let
                 () -> randn(nparameters(P))
             end
-            N = 2500
+            N = 4000
             alg_catastrophe_points = solve(
                 P,
                 solutions(res),
-                start_parameters = startParams,
+                start_parameters = parameters(res),#startParams,
                 target_parameters = [rand_lin_space() for i = 1:N],
                 transform_result = (r, p) -> real_solutions(r),
                 flatten = true
@@ -286,7 +286,7 @@ function animateTensegrity(vertices, unknownBars, knownBars, unknownCables, know
         @lift(limits!(ax, FRect((($xlimiter)[1]-0.5,($ylimiter)[1]-0.5), (($xlimiter)[2]-($xlimiter)[1]+1.0,($ylimiter)[2]-($ylimiter)[1]+1.0))))
     end
 
-    record(scene, "time_animation.mp4", timestamps; framerate = 30) do t
+    record(scene, "time_animation.mp4", timestamps; framerate = 15) do t
         params[] = t
     end
     display(scene)
@@ -303,7 +303,7 @@ function start_demo(whichTests::Array)
 
     if(0.1 in whichTests)
         t=0:1/15:2*pi
-        timestamps=[[0.0,sin(time)] for time in t]
+        timestamps=[[0.1,0.5*sin(time)-0.25] for time in t]
         display(timestamps)
         @var p[1:4];
         display(stableEquilibria([[1.0,0],[2.0,1/4],p[1:2],p[3:4]],[[1,3,0.5]],[[2,3,1/4,1/4],[3,4,1/4,1/4]],p[1:2],p[3:4],[0.0,0.0],[],[],timestamps))
