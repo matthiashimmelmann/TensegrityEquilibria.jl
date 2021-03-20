@@ -5,7 +5,9 @@ export stableEquilibria, start_demo
 using LinearAlgebra, HomotopyContinuation, GLMakie, AbstractPlotting, Printf
 
 #=
-@input vertices::[[p_11,p_12,...], ..., [p_m1,p_m2,...]], unknownBars::[[i,j,l_ij],...], unknowncables::[[i,j,r_ij,e_ij]] with i<j
+@input vertices::[[p_11,p_12,...], ..., [p_m1,p_m2,...]], unknownBars::[[i,j,l_ij],...] non-redundant list, unknowncables::[[i,j,r_ij,e_ij]] non-redundant list,
+listOfInternalVariables::[a,...], listOfControlParams::[a,...], targetParams::[a,...], knownBars::[[i,j],...] for plotting, knownCables::[[i,j],...] for plotting.
+If an animation is wished, use the optional argument timestamps::[[q_11,q_12,...],...] to provide a path (given by points) in the space listOfControlParams.
 Calculate configurations in equilibrium for the given tensegrity framework
 =#
 function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Array, listOfInternalVariables::Array{Variable,1}, listOfControlParams::Array, targetParams::Array, knownBars::Array, knownCables::Array, timestamps=[])
@@ -73,7 +75,7 @@ function isLocalMinimum(listOfInternalVariables, listOfControlParams, delta, lam
     end
 end
 
-# assert that the inputs of stableEquilibria are correct
+# assert that the inputs of stableEquilibria are as expected
 function assertCorrectInput(vertices, unknownBars, unknownCables, listOfInternalVariables, listOfControlParams, targetParams, knownBars, knownCables)
     @assert(length(vertices)>1)
     D = length(vertices[1])
@@ -87,10 +89,10 @@ function assertCorrectInput(vertices, unknownBars, unknownCables, listOfInternal
     @assert(length(listOfControlParams)==length(targetParams))
 end
 
-# This function extracts the position of the parameters in the vertices and replaces them
-# with their respective computed value. It returns the array of vertices in the form of Point2f0/Point3f0
-# and the array of all other minimizers of the energy function Q, that were not yet used, in shadowPoints.
-# WARNING: This cannot deal with Polynomial-type entries of the vertices yet. Only pure variables are allowed.
+#= This function extracts the position of the parameters in the vertices and replaces them
+ with their respective computed value. It returns the array of vertices in the form of Point2f0/Point3f0
+ and the array of all other minimizers of the energy function Q, that were not yet used, in shadowPoints.
+ WARNING: This cannot deal with Polynomial-type entries of the vertices yet. Only pure variables are allowed.=#
 function arrangeArray(array, listOfInternalVariables, realSol, listOfControlParams, targetParams)
     #TODO add polynomial substitution for coordinates on a curve
     subsArray=[[] for sol in realSol]
@@ -123,8 +125,9 @@ function arrangeArray(array, listOfInternalVariables, realSol, listOfControlPara
     return(subsArray)
 end
 
-# Creates a dynamic parametric plot of the vertices (red) with corresponding bars (black) and cables (blue).
-# The shadow vertices are plotted in grey. If there are no parameters given, this plot is static.
+#= Creates a dynamic parametric plot of the vertices (red) with corresponding bars (black) and cables (blue).
+The shadow vertices are plotted in grey. If there are no parameters given, this plot is static.
+It allows for swapping between the different local minima of the energy function with the 'n' key.=#
 function plotWithMakie(vertices, unknownBars, knownBars, unknownCables, knownCables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G, catastrophePoints)
     bars=vcat(unknownBars,knownBars); cables=vcat(unknownCables,knownCables)
     params=Node(targetParams)
@@ -186,9 +189,9 @@ function plotWithMakie(vertices, unknownBars, knownBars, unknownCables, knownCab
     return(fixedVertices[])
 end
 
-# This method omputes the minimal and maximal element of the position xyz a nested array (so all values of the form
-# array[:][index]). Afterwards it checks if the previous minimum limiter[1] or the maximum limter[2] is beaten. If so,
-# it returns the new optima.
+#= This method omputes the minimal and maximal element of the position xyz a nested array (so all values of the form
+array[:][index]). Afterwards it checks if the previous minimum limiter[1] or the maximum limter[2] is beaten. If so,
+it returns the new optima.=#
 function computeMinMax(fixedVertices,shadowPoints,limiter,xyz)
     for i in 1:length(fixedVertices)
         fixedVertices[i][xyz] > limiter[2] ? limiter[2]=fixedVertices[i][xyz] : nothing
@@ -201,6 +204,8 @@ function computeMinMax(fixedVertices,shadowPoints,limiter,xyz)
     return(limiter)
 end
 
+#= The method catastrophePoints computes a witness set of the catastrophe discriminant using monodromy loops
+ If the computation fails for some reason, it returns nothing, so the plot can still be displayed.=#
 function catastrophePoints(vertices, internalVariables, controlParameters, targetParams, unknownCables, unknownBars)
     cp = let
         #TODO find control node
@@ -238,7 +243,7 @@ function catastrophePoints(vertices, internalVariables, controlParameters, targe
             rand_lin_space = let
                 () -> randn(nparameters(P))
             end
-            N = 4000
+            N = 1000
             alg_catastrophe_points = solve(
                 P,
                 solutions(res),
@@ -258,6 +263,8 @@ function catastrophePoints(vertices, internalVariables, controlParameters, targe
     return(cp)
 end
 
+#= This method allows for the animation of a tensegrity framework. Given a path in parameter space defined by point samples, it animates the movement
+ of the energy functions' minima along this path.=#
 function animateTensegrity(vertices, unknownBars, knownBars, unknownCables, knownCables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G, cp, timestamps)
     bars=vcat(unknownBars,knownBars); cables=vcat(unknownCables,knownCables)
     params=Node(targetParams)
@@ -293,12 +300,14 @@ function animateTensegrity(vertices, unknownBars, knownBars, unknownCables, know
     return(fixedVertices[])
 end
 
+#= These prewritten tests can be called by entering their corresponding numbers into an array, e.g. [0,1,2].
+=#
 function start_demo(whichTests::Array)
     #Tests
     if(0 in whichTests)
         @var p[1:4];
         display(stableEquilibria([[1.0,0],[2.0,1/4],p[1:2],p[3:4]],[[1,3,0.5]],[[2,3,1/4,1/4],[3,4,1/4,1/4]],p[1:2],p[3:4],[0.0,0.0],[],[]))
-        sleep(1)
+        sleep(5)
     end
 
     if(0.1 in whichTests)
@@ -307,13 +316,13 @@ function start_demo(whichTests::Array)
         display(timestamps)
         @var p[1:4];
         display(stableEquilibria([[1.0,0],[2.0,1/4],p[1:2],p[3:4]],[[1,3,0.5]],[[2,3,1/4,1/4],[3,4,1/4,1/4]],p[1:2],p[3:4],[0.0,0.0],[],[],timestamps))
-        sleep(1)
+        sleep(5)
     end
 
     if(1 in whichTests)
         @var p[1:2] l;
         display(stableEquilibria([[1,2],[3,4],p],[[1,3,l]],[[2,3,1,1]],p,[l],[2.5],[],[]))
-        sleep(1)
+        sleep(5)
     end
 
     if(2 in whichTests)
@@ -324,7 +333,7 @@ function start_demo(whichTests::Array)
                                  p,[ell],[1.0],
                                  [[3,4],[3,5],[4,5]],[])
         )
-        sleep(1)
+        sleep(5)
     end
 
     if(2.1 in whichTests)
@@ -335,7 +344,7 @@ function start_demo(whichTests::Array)
                                  p[4:6],p[1:3],[0.0,-1.0,0.0],
                                  [[3,4],[3,5],[4,5]],[])
         )
-        sleep(1)
+        sleep(5)
     end
 
     if(3 in whichTests)
@@ -347,7 +356,7 @@ function start_demo(whichTests::Array)
                                  [],
                                  [[1,2],[2,3],[1,3]])
         )
-        sleep(1)
+        sleep(5)
     end
 
     if(3.1 in whichTests)
@@ -359,7 +368,7 @@ function start_demo(whichTests::Array)
                                  [],
                                  [[1,2],[2,3],[1,3]])
         )
-        sleep(1)
+        sleep(5)
     end
 end
 
