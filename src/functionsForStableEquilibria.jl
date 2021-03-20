@@ -30,7 +30,7 @@ function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Ar
     @var lambda[1:length(G)]
     L = Q + lambda'*G
     ∇L = differentiate(L, [listOfInternalVariables; delta; lambda])
-    catastrophe = catastrophePoints([entry for entry in vertices], listOfInternalVariables, listOfControlParams, targetParams, unknownCables, unknownBars)
+    catastropheWitness = catastrophePoints([entry for entry in vertices], listOfInternalVariables, listOfControlParams, targetParams, unknownCables, unknownBars)
     if(!isempty(listOfInternalVariables))
         F = isempty(listOfControlParams) ? System(∇L; variables = [listOfInternalVariables; delta; lambda]) : System(∇L; variables = [listOfInternalVariables; delta; lambda], parameters = listOfControlParams)
         params₀ = randn(ComplexF64, nparameters(F))
@@ -40,10 +40,12 @@ function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Ar
         H = ParameterHomotopy(F, params₀, params₀)
         solver, _ = solver_startsolutions(H, S₀)
         if(isempty(timestamps))
-            realSol = plotWithMakie(vertices, unknownBars, knownBars, unknownCables, knownCables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G, catastrophe)
+            # produces a non-animate, interactive plots
+            realSol = plotWithMakie(vertices, unknownBars, knownBars, unknownCables, knownCables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G, catastropheWitness)
             return(realSol, listOfInternalVariables)
         else
-            realSol = animateTensegrity(vertices, unknownBars, knownBars, unknownCables, knownCables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G, catastrophe, timestamps)
+            # produces an animation
+            realSol = animateTensegrity(vertices, unknownBars, knownBars, unknownCables, knownCables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G, catastropheWitness, timestamps)
             return(realSol, listOfInternalVariables)
         end
     else
@@ -52,7 +54,8 @@ function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Ar
     return(nothing)
 end
 
-# Check if the current configuration is a local minimum of Q
+#= Check if the input configuration (a critical point) is a local minimum of the energy function or not.
+=#
 function isLocalMinimum(listOfInternalVariables, listOfControlParams, delta, lambda, L, G)
     ∇L = differentiate(L, [listOfInternalVariables; delta])
     if(isempty(listOfControlParams))
@@ -75,7 +78,8 @@ function isLocalMinimum(listOfInternalVariables, listOfControlParams, delta, lam
     end
 end
 
-# assert that the inputs of stableEquilibria are as expected
+#= assert that the inputs of stableEquilibria are as expected
+=#
 function assertCorrectInput(vertices, unknownBars, unknownCables, listOfInternalVariables, listOfControlParams, targetParams, knownBars, knownCables)
     @assert(length(vertices)>1)
     D = length(vertices[1])
@@ -94,12 +98,13 @@ end
  and the array of all other minimizers of the energy function Q, that were not yet used, in shadowPoints.
  WARNING: This cannot deal with Polynomial-type entries of the vertices yet. Only pure variables are allowed.=#
 function arrangeArray(array, listOfInternalVariables, realSol, listOfControlParams, targetParams)
-    #TODO add polynomial substitution for coordinates on a curve
+    #TODO add polynomial substitution for coordinates on a curve (polynomials)
     subsArray=[[] for sol in realSol]
     for i in 1:length(array)
         helper=[];
         for j in 1:length(array[i])
-            if(typeof(array[i][j])!=Float64 && typeof(array[i][j])!=Int64)
+            # We check, if the current array element is a number or a variable
+            if(typeof(array[i][j])!=Float64 && typeof(array[i][j])!=Int64 && typeof(array[i][j])!=ComplexF64)
                 index=findfirst(en->en==array[i][j], listOfInternalVariables)
                 if(index==nothing || typeof(index) == Nothing)
                     index=findfirst(en->en==array[i][j], listOfControlParams)
@@ -114,6 +119,7 @@ function arrangeArray(array, listOfInternalVariables, realSol, listOfControlPara
                 push!(helper,array[i][j])
             end
         end
+        # All possible configurations are added to an array. Later, one is chosen to be the vertex to be displayed and the others are chosen to be shadow points.
         for i in 1:length(realSol)
             if length(helper)==2
                 push!(subsArray[i], Point2f0(typeof(helper[1])==Array{Float64,1} ? helper[1][i] : helper[1], typeof(helper[2])==Array{Float64,1} ? helper[2][i] : helper[2]))
@@ -130,10 +136,13 @@ The shadow vertices are plotted in grey. If there are no parameters given, this 
 It allows for swapping between the different local minima of the energy function with the 'n' key.=#
 function plotWithMakie(vertices, unknownBars, knownBars, unknownCables, knownCables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G, catastrophePoints)
     bars=vcat(unknownBars,knownBars); cables=vcat(unknownCables,knownCables)
+    # Make the variable params interactive.
     params=Node(targetParams)
+
     scene, layout = layoutscene(resolution = (1400, 850))
     ax = layout[1:4, 1] = length(vertices[1])==3 ? LScene(scene, width=750, height=750, camera = cam3d!, raw = false) : MakieLayout.Axis(scene,width=750,height=750)
 
+    # Initialization of the scene's layout.
     layout[1:4, 2] = Box(scene, color = :white, strokecolor = :transparent, width=50)
     layout[1, 3] = Box(scene, color = :white, strokecolor = :transparent, height=50)
     layout[2, 3] = Box(scene, color = (:white, 0.1), strokecolor = :red, height=80, width=400)
@@ -141,6 +150,7 @@ function plotWithMakie(vertices, unknownBars, knownBars, unknownCables, knownCab
     layout[3, 3] = Box(scene, color = (:white, 0.1), strokecolor = :transparent, height=100)
     layout[3, 3] = Label(scene, "Control Parameters:", textsize = 20, halign=:left, valign=:bottom)
 
+    # Adding sliders for interactively choosing the parameters during runtime.
     lsgrid = labelslidergrid!(
         scene,
         [string(string(para),": ") for para in listOfControlParams],
@@ -159,6 +169,7 @@ function plotWithMakie(vertices, unknownBars, knownBars, unknownCables, knownCab
         end
     end
 
+    # Upon change of params, recalculate the possible vertex configurations of this system
     allVertices=@lift begin
         target_parameters!(solver, $params)
         res₀ = solve(solver, S₀, threading = true)
@@ -167,14 +178,15 @@ function plotWithMakie(vertices, unknownBars, knownBars, unknownCables, knownCab
         arrangeArray(vertices, listOfInternalVariables, realSol, listOfControlParams, $params)
     end
 
+    # Make the index of the current configuration in the space of all possible configurations `allVertices` interactively choosable. Change it during runtime by pressing 'n'
     currentIndex = Node(1)
     on(scene.events.unicode_input) do input
         'n' in input ? (currentIndex[]-1==0 ? currentIndex[]=length(allVertices[]) : currentIndex[]=currentIndex[]-1) : nothing
     end
-
     fixedVertices=@lift(($allVertices)[$(currentIndex) > length($allVertices) ? 1 : $(currentIndex)])
     shadowPoints=@lift(vcat(($allVertices)[1:end]...))
 
+    # Plot all given edges and vertices. They are modified upon registering change in `allVertices`, which is equivalent to change in params.
     foreach(bar->linesegments!(ax, @lift([($fixedVertices)[Int64(bar[1])], ($fixedVertices)[Int64(bar[2])]]) ; linewidth = length(vertices[1])==2 ? 4.0 : 5.0, color=:black), bars)
     foreach(cable->linesegments!(ax, @lift([($fixedVertices)[Int64(cable[1])], ($fixedVertices)[Int64(cable[2])]]) ; color=:blue), cables)
     scatter!(ax, @lift([f for f in $shadowPoints]); color=:lightgrey, marker = :diamond, alpha=0.1, markersize = length(vertices[1])==2 ? 12 : 75)
@@ -238,6 +250,7 @@ function catastrophePoints(vertices, internalVariables, controlParameters, targe
         )
         startParams=randn(ComplexF64, nparameters(P))
         try
+            # TODO calculate first solution via gradient descent.
             res = monodromy_solve(P)
             #res=solve(P, target_parameters=startParams)
             rand_lin_space = let
@@ -293,6 +306,7 @@ function animateTensegrity(vertices, unknownBars, knownBars, unknownCables, know
         @lift(limits!(ax, FRect((($xlimiter)[1]-0.5,($ylimiter)[1]-0.5), (($xlimiter)[2]-($xlimiter)[1]+1.0,($ylimiter)[2]-($ylimiter)[1]+1.0))))
     end
 
+    # Animate the framework by giving params different values and thus triggering change in the framework.
     record(scene, "time_animation.mp4", timestamps; framerate = 15) do t
         params[] = t
     end
