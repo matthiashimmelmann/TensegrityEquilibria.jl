@@ -324,9 +324,9 @@ function to_point(listOfVertices)
     end
 end
 
-#= Given a list of lists of vertices (on a parameter path) as a list of Point2f0 or Point3f0 and a list of edges ([[i,j], ...])
+#= Given a list of lists of vertices (on a parameter path) as a list of Point2f0 or Point3f0 and a list of edges ([[i,j], ...]). fr is the preferred framerate
 =#
-function animateTensegrity(listOfVertexSets::Array, listOfEdges::Array, fr)
+function animateTensegrity(listOfVertexSets::Array, listOfEdges::Array, fr::Int)
     currentConfiguration = Node(listOfVertexSets[1])
     scene=Scene()
     scatter!(scene, @lift([f for f in to_point($currentConfiguration)]))
