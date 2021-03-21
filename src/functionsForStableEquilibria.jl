@@ -1,6 +1,6 @@
-module functionsForStableEquilibria
+module Tensegrity
 
-export stableEquilibria, start_demo
+export stableEquilibria, start_demo, animateTensegrity
 
 using LinearAlgebra, HomotopyContinuation, GLMakie, AbstractPlotting, Printf
 
@@ -45,7 +45,7 @@ function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Ar
             return(realSol, listOfInternalVariables)
         else
             # produces an animation
-            realSol = animateTensegrity(vertices, unknownBars, knownBars, unknownCables, knownCables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G, catastropheWitness, timestamps)
+            realSol = animateSolvedFramework(vertices, unknownBars, knownBars, unknownCables, knownCables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G, catastropheWitness, timestamps)
             return(realSol, listOfInternalVariables)
         end
     else
@@ -278,7 +278,7 @@ end
 
 #= This method allows for the animation of a tensegrity framework. Given a path in parameter space defined by point samples, it animates the movement
  of the energy functions' minima along this path.=#
-function animateTensegrity(vertices, unknownBars, knownBars, unknownCables, knownCables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G, cp, timestamps)
+function animateSolvedFramework(vertices, unknownBars, knownBars, unknownCables, knownCables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G, cp, timestamps)
     bars=vcat(unknownBars,knownBars); cables=vcat(unknownCables,knownCables)
     params=Node(targetParams)
     scene, layout = layoutscene(resolution = (850, 850))
@@ -314,10 +314,39 @@ function animateTensegrity(vertices, unknownBars, knownBars, unknownCables, know
     return(fixedVertices[])
 end
 
-#= These prewritten tests can be called by entering their corresponding numbers into an array, e.g. [0,1,2].
+#= transform a list of vertices into a list of points.
 =#
+function to_point(listOfVertices)
+    if(length(listOfVertices[1])==2)
+        return([Point2f0([vx[1],vx[2]]) for vx in listOfVertices])
+    else
+        return([Point3f0([vx[1],vx[2],vx[3]]) for vx in listOfVertices])
+    end
+end
+
+#= Given a list of lists of vertices (on a parameter path) as a list of Point2f0 or Point3f0 and a list of edges ([[i,j], ...])
+=#
+function animateTensegrity(listOfVertexSets::Array, listOfEdges::Array, fr)
+    currentConfiguration = Node(listOfVertexSets[1])
+    scene=Scene()
+    scatter!(scene, @lift([f for f in to_point($currentConfiguration)]))
+    for edge in listOfEdges
+        linesegments!(scene, @lift([to_point($currentConfiguration)[edge[1]], to_point($currentConfiguration)[edge[2]]]))
+    end
+
+    timestamps = [i for i in 1:length(listOfVertexSets)]
+    record(scene, "animatedTensegrity.mp4", timestamps; framerate = fr) do i
+        currentConfiguration[] = listOfVertexSets[i]
+    end
+    display(scene)
+end
+
 function start_demo(whichTests::Array)
     #Tests
+    if(-1 in whichTests)
+        animateTensegrity([[[0,1],[1,0]], [[0,0],[1,1]],], [[1,2]], 1)
+    end
+
     if(0 in whichTests)
         @var p[1:4];
         display(stableEquilibria([[1.0,0],[2.0,1/4],p[1:2],p[3:4]],[[1,3,0.5]],[[2,3,1/4,1/4],[3,4,1/4,1/4]],p[1:2],p[3:4],[0.0,0.0],[],[]))

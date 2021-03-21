@@ -1,9 +1,9 @@
 module tensegrityEquilibria
 
-export functionsForStableEquilibria
+export Tensegrity
 
 include("functionsForStableEquilibria.jl")
 
-functionsForStableEquilibria.start_demo([2.1])
+Tensegrity.start_demo([0])
 
 end
