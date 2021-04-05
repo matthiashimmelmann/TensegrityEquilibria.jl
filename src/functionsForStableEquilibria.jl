@@ -12,7 +12,6 @@ Calculate configurations in equilibrium for the given tensegrity framework
 =#
 function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Array, listOfInternalVariables::Array{Variable,1}, listOfControlParams::Array, targetParams::Array, knownBars::Array, knownCables::Array, timestamps=[])
     assertCorrectInput(vertices, unknownBars, unknownCables, listOfInternalVariables, listOfControlParams, targetParams, knownBars, knownCables)
-
     @var delta[1:length(unknownCables)]
     B, C, G = [], [], []
     for index in 1:length(unknownBars)
@@ -34,6 +33,7 @@ function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Ar
     if(!isempty(listOfInternalVariables))
         F = isempty(listOfControlParams) ? System(∇L; variables = [listOfInternalVariables; delta; lambda]) : System(∇L; variables = [listOfInternalVariables; delta; lambda], parameters = listOfControlParams)
         params₀ = randn(ComplexF64, nparameters(F))
+        #TODO compute a local solution via gradient descent
         res₀ = isempty(listOfControlParams) ? solve(F) : solve(F; target_parameters = params₀)
 
         S₀ = solutions(res₀)
@@ -151,21 +151,23 @@ function plotWithMakie(vertices, unknownBars, knownBars, unknownCables, knownCab
     layout[3, 3] = Label(scene, "Control Parameters:", textsize = 20, halign=:left, valign=:bottom)
 
     # Adding sliders for interactively choosing the parameters during runtime.
-    lsgrid = labelslidergrid!(
-        scene,
-        [string(string(para),": ") for para in listOfControlParams],
-        [targetParams[i]-2:0.05:targetParams[i]+2 for i in 1:length(targetParams)];
-        formats = x -> "$(x==(round(x, digits = 1)) ? string(string(x),"0") : string(x))",
-        width = 400,
-        valign=:top
-    )
-    layout[4,3]=lsgrid.layout
-    for i in 1:length(listOfControlParams)
-        set_close_to!(lsgrid.sliders[i], targetParams[i])
-        params = @lift begin
-            param = ($params)
-            param[i]=$(lsgrid.sliders[i].value)
-            return(param)
+    if length(listOfControlParams)>0
+        lsgrid = labelslidergrid!(
+            scene,
+            [string(string(para),": ") for para in listOfControlParams],
+            [targetParams[i]-2:0.05:targetParams[i]+2 for i in 1:length(targetParams)];
+            formats = x -> "$(x==(round(x, digits = 1)) ? string(string(x),"0") : string(x))",
+            width = 400,
+            valign=:top
+        )
+        layout[4,3]=lsgrid.layout
+        for i in 1:length(listOfControlParams)
+            set_close_to!(lsgrid.sliders[i], targetParams[i])
+            params = @lift begin
+                param = ($params)
+                param[i]=$(lsgrid.sliders[i].value)
+                return(param)
+            end
         end
     end
 
@@ -189,9 +191,11 @@ function plotWithMakie(vertices, unknownBars, knownBars, unknownCables, knownCab
     # Plot all given edges and vertices. They are modified upon registering change in `allVertices`, which is equivalent to change in params.
     foreach(bar->linesegments!(ax, @lift([($fixedVertices)[Int64(bar[1])], ($fixedVertices)[Int64(bar[2])]]) ; linewidth = length(vertices[1])==2 ? 4.0 : 5.0, color=:black), bars)
     foreach(cable->linesegments!(ax, @lift([($fixedVertices)[Int64(cable[1])], ($fixedVertices)[Int64(cable[2])]]) ; color=:blue), cables)
-    scatter!(ax, @lift([f for f in $shadowPoints]); color=:lightgrey, marker = :diamond, alpha=0.1, markersize = length(vertices[1])==2 ? 12 : 75)
+    scatter!(ax, @lift([f for f in $shadowPoints]); color=:goldenrod3, marker = :diamond, alpha=0.1, markersize = length(vertices[1])==2 ? 12 : 75)
     scatter!(ax, @lift([f for f in $fixedVertices]); color=:red, markersize = length(vertices[1])==2 ? 12 : 75)
-    !isempty(catastrophePoints) ? scatter!(ax, catastrophePoints; alpha=0.1, markersize=0.5, color=:teal) : nothing
+    #mesh!(ax, catastrophePoints, color=:lightgrey, alpha=0.15)
+    #meshing(ax, catastrophePoints, 5)
+    !isempty(catastrophePoints) ? scatter!(ax, catastrophePoints; alpha=0.1, markersize=0.5, color=:lightgrey) : nothing
     if(length(vertices[1])==2)
         xlimiter = Node([Inf,-Inf]); xlimiter = @lift(computeMinMax($fixedVertices, $shadowPoints, $xlimiter, 1));
         ylimiter = Node([Inf,-Inf]); ylimiter = @lift(computeMinMax($fixedVertices, $shadowPoints, $ylimiter, 2));
@@ -214,6 +218,14 @@ function computeMinMax(fixedVertices,shadowPoints,limiter,xyz)
         shadowPoints[i][xyz] < limiter[1] ? limiter[1]=shadowPoints[i][xyz] : nothing
     end
     return(limiter)
+end
+
+function meshing(scene, points, density)
+    for i in 1:length(points)
+        v = [norm(points[i]-points[j]) for j in 1:length(points)]
+        idx = filter(j->j!=i,partialsortperm(v, 1:density+1; rev=false))
+        foreach(j->linesegments!(scene, [points[i],points[j]]; linewidth = 0.7, alpha=0.2, color=:lightgrey), idx)
+    end
 end
 
 #= The method catastrophePoints computes a witness set of the catastrophe discriminant using monodromy loops
@@ -243,21 +255,19 @@ function catastrophePoints(vertices, internalVariables, controlParameters, targe
         J_L_v = [differentiate(∇L, [internalVariables; delta; lambda]) * v; α'v - 1]
         @var a[1:length(controlParameters),1:length(controlParameters)-1] b[1:length(controlParameters)-1]
         L1 = a' * controlParameters + b
-        P = System(
-          [∇L; J_L_v; L1];
-          variables = [controlParameters; internalVariables; delta; lambda; v],
-          parameters = [collect(Iterators.flatten(a)); b]
-        )
-        startParams=randn(ComplexF64, nparameters(P))
         try
-            # TODO calculate first solution via gradient descent.
+            P = System(
+              [∇L; J_L_v; L1];
+              variables = [controlParameters; internalVariables; delta; lambda; v],
+              parameters = [collect(Iterators.flatten(a)); b]
+            )
             res = monodromy_solve(P)
-            #res=solve(P, target_parameters=startParams)
+            #res=solve(P, target_parameters=randn(ComplexF64, nparameters(P)))
             rand_lin_space = let
                 () -> randn(nparameters(P))
             end
             N = 1000
-            alg_catastrophe_points = solve(
+                alg_catastrophe_points = solve(
                 P,
                 solutions(res),
                 start_parameters = parameters(res),#startParams,
@@ -297,7 +307,7 @@ function animateSolvedFramework(vertices, unknownBars, knownBars, unknownCables,
 
     foreach(bar->linesegments!(ax, @lift([($fixedVertices)[Int64(bar[1])], ($fixedVertices)[Int64(bar[2])]]) ; linewidth = length(vertices[1])==2 ? 4.0 : 5.0, color=:black), bars)
     foreach(cable->linesegments!(ax, @lift([($fixedVertices)[Int64(cable[1])], ($fixedVertices)[Int64(cable[2])]]) ; color=:blue), cables)
-    scatter!(ax, @lift([f for f in $shadowPoints]); color=:lightgrey, marker = :diamond, alpha=0.1, markersize = length(vertices[1])==2 ? 12 : 75)
+    scatter!(ax, @lift([f for f in $shadowPoints]); color=:goldenrod3, marker = :diamond, alpha=0.1, markersize = length(vertices[1])==2 ? 12 : 75)
     scatter!(ax, @lift([f for f in $fixedVertices]); color=:red, markersize = length(vertices[1])==2 ? 12 : 75)
     scatter!(ax, cp; alpha=0.1, markersize=0.5, color=:teal)
     if(length(vertices[1])==2)
@@ -356,7 +366,6 @@ function start_demo(whichTests::Array)
     if(0.1 in whichTests)
         t=0:1/15:2*pi
         timestamps=[[0.1,0.5*sin(time)-0.25] for time in t]
-        display(timestamps)
         @var p[1:4];
         display(stableEquilibria([[1.0,0],[2.0,1/4],p[1:2],p[3:4]],[[1,3,0.5]],[[2,3,1/4,1/4],[3,4,1/4,1/4]],p[1:2],p[3:4],[0.0,0.0],[],[],timestamps))
         sleep(5)
@@ -407,7 +416,19 @@ function start_demo(whichTests::Array)
         display(stableEquilibria([[0,1,0],[sin(2*pi/3),cos(2*pi/3),0],[sin(4*pi/3),cos(4*pi/3),0],[p[1],p[2],p[3]],[p[4],p[5],p[6]],[p[7],p[8],p[9]]],
                                  [[1,4,3], [2,5,3],[3,6,3]],
                                  [[1,5,2.5,1.0],[2,6,2.5,1.0],[3,4,2.5,1.0],[4,5,1,1.0],[5,6,1,1.0],[4,6,1,1.0]],
-                                 p[1:7],p[8:9],[0.5,2.4],
+                                 p[1:9],[],[],
+                                 [],
+                                 [[1,2],[2,3],[1,3]])
+        )
+        sleep(5)
+    end
+
+    if(3.2 in whichTests)
+        @var p[1:9]
+        display(stableEquilibria([[0,1,0],[sin(2*pi/3),cos(2*pi/3),0],[sin(4*pi/3),cos(4*pi/3),0],[p[1],p[2],p[3]],[p[4],p[5],p[6]],[p[7],p[8],p[9]]],
+                                 [[1,4,3], [2,5,3],[3,6,3]],
+                                 [[1,5,2.5,1.0],[2,6,2.5,1.0],[3,4,2.5,1.0],[4,5,1,1.0],[5,6,1,1.0],[4,6,1,1.0]],
+                                 p[1:6],p[7:9],[0.6053381, 0, 2.5661428],
                                  [],
                                  [[1,2],[2,3],[1,3]])
         )
