@@ -3,9 +3,9 @@ module TensegrityEquilibria
 export stableEquilibria, start_demo, animateTensegrity
 
 import LinearAlgebra: norm, nullspace, zeros, eigvals
-import HomotopyContinuation: @var, solve, differentiate, System, InterpretedSystem, randn, target_parameters!, real_solutions, nparameters, jacobian!, monodromy_solve
-import GLMakie: scatter!, Node, @lift, limits!, linesegments!, record, Point3f0, on
-import AbstractPlotting: layoutscene, labelslidergrid!, Box, Label, LScene, MakieLayout
+import HomotopyContinuation: @var, solve, differentiate, System, InterpretedSystem, randn, target_parameters!, real_solutions, nparameters, jacobian!, monodromy_solve, Variable, solutions, ParameterHomotopy, solver_startsolutions, parameters, variables
+import GLMakie: scatter!, Node, @lift, limits!, linesegments!, record, Point3f0, on, Point2f0, Point, FRect, Scene, cam3d!, xlims!, ylims!, zlims!
+import AbstractPlotting: layoutscene, labelslidergrid!, Box, Label, LScene, MakieLayout, set_close_to!, Axis
 import Printf
 
 #=
@@ -270,7 +270,7 @@ function catastrophePoints(vertices, internalVariables, controlParameters, targe
             rand_lin_space = let
                 () -> randn(nparameters(P))
             end
-            N = 200
+            N = 500
             alg_catastrophe_points = solve(
                 P,
                 solutions(res),
@@ -321,7 +321,7 @@ function animateSolvedFramework(vertices, unknownBars, knownBars, unknownCables,
     end
 
     # Animate the framework by giving params different values and thus triggering change in the framework.
-    record(scene, "time_animation.mp4", timestamps; framerate = 15) do t
+    record(scene, "time_animation.gif", timestamps; framerate = 15) do t
         params[] = t
     end
     display(scene)
@@ -349,7 +349,7 @@ function animateTensegrity(listOfVertexSets::Array, listOfEdges::Array, fr::Int)
     end
 
     timestamps = [i for i in 1:length(listOfVertexSets)]
-    record(scene, "animatedTensegrity.mp4", timestamps; framerate = fr) do i
+    record(scene, "animatedTensegrity.gif", timestamps; framerate = fr) do i
         currentConfiguration[] = listOfVertexSets[i]
     end
     display(scene)
