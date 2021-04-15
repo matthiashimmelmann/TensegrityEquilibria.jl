@@ -4,6 +4,6 @@ export Tensegrity
 
 include("functionsForStableEquilibria.jl")
 
-Tensegrity.start_demo([0])
+Tensegrity.start_demo([3.1])
 
 end

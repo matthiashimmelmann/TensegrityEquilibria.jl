@@ -175,9 +175,9 @@ function plotWithMakie(vertices, unknownBars, knownBars, unknownCables, knownCab
     allVertices=@lift begin
         target_parameters!(solver, $params)
         res₀ = solve(solver, S₀, threading = true)
-        realSol = (map(t->t[1:length(listOfInternalVariables)], filter(en->isempty(filter(x->x<0, en[length(listOfInternalVariables)+1:length(listOfInternalVariables)+length(delta)])) &&
+        realSol = (map(t->t[1:length(listOfInternalVariables)+length(delta)], filter(en->isempty(filter(x->x<0, en[length(listOfInternalVariables)+1:length(listOfInternalVariables)+length(delta)])) &&
             isLocalMinimum(listOfInternalVariables, listOfControlParams, delta, lambda, L, G)(real.(en), $params), real_solutions(res₀))))
-        arrangeArray(vertices, listOfInternalVariables, realSol, listOfControlParams, $params)
+        arrangeArray(vertices, listOfInternalVariables, [sol[1:length(listOfInternalVariables)] for sol in realSol], listOfControlParams, $params)
     end
 
     # Make the index of the current configuration in the space of all possible configurations `allVertices` interactively choosable. Change it during runtime by pressing 'n'
@@ -266,7 +266,7 @@ function catastrophePoints(vertices, internalVariables, controlParameters, targe
             rand_lin_space = let
                 () -> randn(nparameters(P))
             end
-            N = 1000
+            N = 200
                 alg_catastrophe_points = solve(
                 P,
                 solutions(res),
