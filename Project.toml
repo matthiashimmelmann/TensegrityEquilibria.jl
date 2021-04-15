@@ -1,6 +1,6 @@
 name = "TensegrityEquilibria"
 uuid = "dcaeff44-b3e3-40bb-9039-8883ea4974a9"
-authors = ["Matthias Himmelmann <65544132+matthiashimmelmann@users.noreply.github.com>"]
+authors = ["Matthias Himmelmann <matthias.himmelmann@outlook.de>"]
 version = "0.1.0"
 
 [deps]
