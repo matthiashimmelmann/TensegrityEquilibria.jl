@@ -1,6 +1,8 @@
 module TensegrityEquilibria
 
-export stableEquilibria, start_demo, animateTensegrity
+export stableEquilibria,
+       start_demo,
+       animateTensegrity
 
 import LinearAlgebra: norm, nullspace, zeros, eigvals
 import HomotopyContinuation: @var, solve, differentiate, System, InterpretedSystem, randn, target_parameters!, real_solutions, nparameters, jacobian!, monodromy_solve, Variable, solutions, ParameterHomotopy, solver_startsolutions, parameters, variables
