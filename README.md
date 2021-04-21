@@ -17,7 +17,7 @@ julia> Pkg.add(url="https://github.com/matthiashimmelmann/TensegrityEquilibria.j
 
 ## Usage
 
-The main method of this program is `stableEquilibria`. It is exported in the module `functionsForStableEquilibria` and can be used from the main module `tensegrityEquilibria`. The former also exports a test suite `start_demo()` that is automatically executed when importing the main module. The main method of this package `stableEquilibria` has the following inputs with corresponding expected format:
+The main method of this program is `stableEquilibria`. It is exported in the module `functionsForStableEquilibria` and can be used from the main module `TensegrityEquilibria`. The former also exports a test suite `start_demo()` that is automatically executed when importing the main module. The main method of this package `stableEquilibria` has the following inputs with corresponding expected format:
 + `vertices`: This array consists of the embedded nodes of the tensegrity framework, given by arrays. If the nodes either contain internal variables or control parameters, they are included here as `@var` types from the numerical algebraic geometry package `HomotopyContinuation`. The expected input format in this case is `[[p_11, ..., p_1d], ..., [p_m1, ..., p_md]]`
 + `unknownBars`: This array consists of the rigid bars of the framework that are not yet determined by the choice of vertices. The expected input format is `[[i, j, l_ij], ...]` for a bar between the embedded vertices `p(i)` and `p(j)`.
 + `unknownCables`: This array consists of the elastic cables of the framework that are not yet determined by the choice of vertices. The expected input format is `[[i, j, r_ij, e_ij], ...]`  for a cable between the embedded vertices `p(i)` and `p(j)`.
