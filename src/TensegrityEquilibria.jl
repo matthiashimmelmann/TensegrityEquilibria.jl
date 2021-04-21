@@ -7,7 +7,7 @@ export stableEquilibria,
 import LinearAlgebra: norm, nullspace, zeros, eigvals
 import HomotopyContinuation: @var, solve, differentiate, System, InterpretedSystem, randn, target_parameters!, real_solutions, nparameters, jacobian!, monodromy_solve, Variable, solutions, ParameterHomotopy, solver_startsolutions, parameters, variables
 import GLMakie: scatter!, Node, @lift, limits!, linesegments!, record, Point3f0, on, Point2f0, Point, FRect, Scene, cam3d!, xlims!, ylims!, zlims!
-import AbstractPlotting: layoutscene, labelslidergrid!, Box, Label, LScene, MakieLayout, set_close_to!, Axis
+import GLMakie.AbstractPlotting: layoutscene, labelslidergrid!, Box, Label, LScene, MakieLayout, set_close_to!, Axis
 import Printf
 
 #=
