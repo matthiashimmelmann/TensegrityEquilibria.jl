@@ -11,8 +11,8 @@ arises. Using the corresponding potential energy function <img src="https://rend
 ## Installation
 
 ```
-using Pkg
-Pkg.add(url="https://github.com/matthiashimmelmann/TensegrityEquilibria.jl.git")
+julia> using Pkg
+julia> Pkg.add(url="https://github.com/matthiashimmelmann/TensegrityEquilibria.jl.git")
 ```
 
 ## Usage
