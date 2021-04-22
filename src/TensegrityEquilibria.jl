@@ -8,7 +8,6 @@ import LinearAlgebra: norm, nullspace, zeros, eigvals
 import HomotopyContinuation: @var, solve, differentiate, System, InterpretedSystem, randn, target_parameters!, real_solutions, nparameters, jacobian!, monodromy_solve, Variable, solutions, ParameterHomotopy, solver_startsolutions, parameters, variables
 import GLMakie: scatter!, Node, @lift, limits!, linesegments!, record, Point3f0, on, Point2f0, Point, FRect, Scene, cam3d!, xlims!, ylims!, zlims!
 import GLMakie.AbstractPlotting: layoutscene, labelslidergrid!, Box, Label, LScene, MakieLayout, set_close_to!, Axis
-import Printf
 
 #=
 @input vertices::[[p_11,p_12,...], ..., [p_m1,p_m2,...]], unknownBars::[[i,j,l_ij],...] non-redundant list, unknowncables::[[i,j,r_ij,e_ij]] non-redundant list,
@@ -360,7 +359,7 @@ end
 function start_demo(whichTests::Array)
     #Tests
     if(-1 in whichTests)
-        animateTensegrity([[[0,1],[1,0]], [[0,0],[1,1]],], [[1,2]], 1)
+        animateTensegrity([[[0,1],[1,0]], [[0,0],[1,1]]], [[1,2]], 1)
     end
 
     if(0 in whichTests)
