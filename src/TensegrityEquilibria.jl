@@ -5,18 +5,65 @@ export stableEquilibria,
        animateTensegrity
 
 import LinearAlgebra: norm, nullspace, zeros, eigvals
-import HomotopyContinuation: @var, solve, differentiate, System, InterpretedSystem, randn, target_parameters!, real_solutions, nparameters, jacobian!, monodromy_solve, Variable, solutions, ParameterHomotopy, solver_startsolutions, parameters, variables
+import HomotopyContinuation: @var, Expression, evaluate, solve, differentiate, System, InterpretedSystem, randn, target_parameters!, real_solutions, nparameters, jacobian!, monodromy_solve, Variable, solutions, ParameterHomotopy, solver_startsolutions, parameters, variables
 import GLMakie: scatter!, Node, @lift, limits!, linesegments!, record, Point3f0, on, Point2f0, Point, FRect, Scene, cam3d!, xlims!, ylims!, zlims!
 import GLMakie.AbstractPlotting: layoutscene, labelslidergrid!, Box, Label, LScene, MakieLayout, set_close_to!, Axis
+import HomotopyOpt
 
+function energyfunc(currentvalue, unknownvalues, vertices, parameters, targetparameters, unknownCables)
+    Q=0.0
+    p = verticesToMatrix(currentvalue, vertices, unknownvalues)
+    for cable in unknownCables
+        i,j,r,e = Int64(cable[1]), Int64(cable[2]), Float64(cable[3]), Float64(cable[4]) # unpack
+        cablelength = norm(p[i,:] - p[j,:])
+        Q += 1/2 * e * (cablelength - r)^2
+    end
+    return(Q)
+end
+
+function verticesToMatrix(currentvalue, vertices, unknownvalues)
+    output = zeros(typeof(currentvalue[1]),length(vertices), length(vertices[1]))
+    for i in 1:size(output)[1], j in 1:size(output)[2]
+        if typeof(vertices[i][j])!=Float64 && typeof(vertices[i][j])!=Int64
+            for k in 1:length(unknownvalues)
+                if unknownvalues[k]==vertices[i][j]
+                    output[i,j] = currentvalue[k]
+                end
+            end
+        else
+            output[i,j] = vertices[i][j]
+        end
+    end
+    return(output)
+end
 #=
 @input vertices::[[p_11,p_12,...], ..., [p_m1,p_m2,...]], unknownBars::[[i,j,l_ij],...] non-redundant list, unknowncables::[[i,j,r_ij,e_ij]] non-redundant list,
 listOfInternalVariables::[a,...], listOfControlParams::[a,...], targetParams::[a,...], knownBars::[[i,j],...] for plotting, knownCables::[[i,j],...] for plotting.
 If an animation is wished, use the optional argument timestamps::[[q_11,q_12,...],...] to provide a path (given by points) in the space listOfControlParams.
 Calculate configurations in equilibrium for the given tensegrity framework
 =#
-function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Array, listOfInternalVariables::Array{Variable,1}, listOfControlParams::Array, targetParams::Array, knownBars::Array, knownCables::Array, timestamps=[])
+function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Array, listOfInternalVariables::Array{Variable,1}, listOfControlParams::Array, targetParams::Array, knownBars::Array, knownCables::Array, timestamps=[]; thresholdForIteration = 9)
     assertCorrectInput(vertices, unknownBars, unknownCables, listOfInternalVariables, listOfControlParams, targetParams, knownBars, knownCables)
+    equilibriaarray = []
+    if length(listOfInternalVariables)>=thresholdForIteration
+        B = []
+        for index in 1:length(unknownBars)
+            l_ij=unknownBars[index][3]; p_i=vertices[Int64(unknownBars[index][1])]; p_j=vertices[Int64(unknownBars[index][2])];
+            bar = !isempty(listOfControlParams) ? Expression(evaluate(sum((p_i-p_j).^2)-l_ij^2, listOfControlParams=>targetParams)) : Expression(sum((p_i-p_j).^2)-l_ij^2)
+            push!(B, bar)
+        end
+        B = Vector{Expression}(B)
+        ConV = HomotopyOpt.ConstraintVariety(listOfInternalVariables, B, length(listOfInternalVariables), length(listOfInternalVariables)-length(B), 2^(length(vertices[1]))*6)
+        Q = x->energyfunc(x, listOfInternalVariables, vertices, listOfControlParams, targetParams, unknownCables)
+        for q in ConV.samples
+        	resultminimum = HomotopyOpt.findminima(q, 1e-4, ConV, Q; maxseconds=1000, whichstep="EDStep", initialstepsize=0.3);
+        	if !any( point -> norm(resultminimum.computedpoints[end]-point)<0.01, equilibriaarray ) && resultminimum.lastpointisminimum
+        	    push!(equilibriaarray,resultminimum.computedpoints[end])
+        	end
+        end
+        realSol = plotStaticFramework(vertices, equilibriaarray, unknownBars, knownBars, unknownCables, knownCables, listOfInternalVariables, listOfControlParams, targetParams)
+        return(realSol, listOfInternalVariables)
+    end
     @var delta[1:length(unknownCables)]
     B, C, G = [], [], []
     for index in 1:length(unknownBars)
@@ -46,7 +93,7 @@ function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Ar
         solver, _ = solver_startsolutions(H, S₀)
         if(isempty(timestamps))
             # produces a non-animate, interactive plots
-            realSol = plotWithMakie(vertices, unknownBars, knownBars, unknownCables, knownCables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G, catastropheWitness)
+            realSol = plotStaticFramework(vertices, unknownBars, knownBars, unknownCables, knownCables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G, catastropheWitness)
             return(realSol, listOfInternalVariables)
         else
             # produces an animation
@@ -136,10 +183,53 @@ function arrangeArray(array, listOfInternalVariables, realSol, listOfControlPara
     return(subsArray)
 end
 
+#= Creates a static parametric plot of the vertices (red) with corresponding bars (black) and cables (blue) for larget systems where HC.jl fails.
+The other minima are displayed in grey.
+The method allows for swapping between the different local minima of the energy function with the 'n' key.=#
+function plotStaticFramework(vertices, solutions, unknownBars, knownBars, unknownCables, knownCables, listOfInternalVariables, listOfControlParams, targetParams)
+    bars=vcat(unknownBars,knownBars); cables=vcat(unknownCables,knownCables)
+    # Make the variable params interactive.
+    params=Node(targetParams)
+
+    scene, layout = layoutscene(resolution = (1400, 850))
+    ax = layout[1:4, 1] = length(vertices[1])==3 ? LScene(scene, width=750, height=750, camera = cam3d!, raw = false) : MakieLayout.Axis(scene,width=750,height=750)
+
+    # Initialization of the scene's layout.
+    layout[1:4, 2] = Box(scene, color = :white, strokecolor = :transparent, width=50)
+    layout[1, 3] = Box(scene, color = :white, strokecolor = :transparent, height=200)
+    layout[2, 3] = Box(scene, color = (:white, 0.1), strokecolor = :red, height=80, width=400)
+    layout[2, 3] = Label(scene, "Press the 'n' Key to iterate through\nthe different vertex configurations", textsize = 20, halign=:center, valign=:center, color=:teal)
+    layout[3, 3] = Box(scene, color = (:white, 0.1), strokecolor = :red, height=80, width=400)
+    layout[3, 3] = Label(scene, "Due to the given framework's size,\n only some equilibria are displayed.", textsize = 20, halign=:center, valign=:center, color=:teal)
+    layout[4, 3] = Box(scene, color = :white, strokecolor = :transparent, height=200)
+
+
+    solutions = arrangeArray(vertices, listOfInternalVariables, solutions, listOfControlParams, [])
+
+    # Make the index of the current configuration in the space of all possible configurations `allVertices` interactively choosable. Change it during runtime by pressing 'n'
+    currentIndex = Node(1)
+    on(scene.events.unicode_input) do input
+        'n' in input ? (currentIndex[]-1==0 ? currentIndex[]=length(solutions) : currentIndex[]=currentIndex[]-1) : nothing
+    end
+    fixedVertices=@lift((solutions)[$(currentIndex) > length(solutions) ? 1 : $(currentIndex)])
+    # Plot all given edges and vertices. They are modified upon registering change in `allVertices`, which is equivalent to change in params.
+    foreach(bar->linesegments!(ax, @lift([($fixedVertices)[Int64(bar[1])], ($fixedVertices)[Int64(bar[2])]]) ; linewidth = length(vertices[1])==2 ? 4.0 : 5.0, color=:black), bars)
+    foreach(cable->linesegments!(ax, @lift([($fixedVertices)[Int64(cable[1])], ($fixedVertices)[Int64(cable[2])]]) ; color=:blue), cables)
+    foreach(solution -> scatter!(ax, [p for p in solution]; color=:goldenrod3, marker = :diamond, alpha=0.1, markersize = length(vertices[1])==2 ? 12 : 75), solutions)
+    scatter!(ax, @lift([p for p in $fixedVertices]); color=:red, markersize = length(vertices[1])==2 ? 12 : 75)
+    if(length(vertices[1])==2)
+        xlimiter = Node([Inf,-Inf]); xlimiter = @lift(computeMinMax($fixedVertices, solutions, $xlimiter, 1));
+        ylimiter = Node([Inf,-Inf]); ylimiter = @lift(computeMinMax($fixedVertices, solutions, $ylimiter, 2));
+        @lift(limits!(ax, FRect((($xlimiter)[1]-0.5,($ylimiter)[1]-0.5), (($xlimiter)[2]-($xlimiter)[1]+1.0,($ylimiter)[2]-($ylimiter)[1]+1.0))))
+    end
+    display(scene)
+    return(fixedVertices[])
+end
+
 #= Creates a dynamic parametric plot of the vertices (red) with corresponding bars (black) and cables (blue).
 The shadow vertices are plotted in grey. If there are no parameters given, this plot is static.
 It allows for swapping between the different local minima of the energy function with the 'n' key.=#
-function plotWithMakie(vertices, unknownBars, knownBars, unknownCables, knownCables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G, catastrophePoints)
+function plotStaticFramework(vertices, unknownBars, knownBars, unknownCables, knownCables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G, catastrophePoints)
     bars=vcat(unknownBars,knownBars); cables=vcat(unknownCables,knownCables)
     # Make the variable params interactive.
     params=Node(targetParams)
@@ -199,7 +289,6 @@ function plotWithMakie(vertices, unknownBars, knownBars, unknownCables, knownCab
     scatter!(ax, @lift([f for f in $shadowPoints]); color=:goldenrod3, marker = :diamond, alpha=0.1, markersize = length(vertices[1])==2 ? 12 : 75)
     scatter!(ax, @lift([f for f in $fixedVertices]); color=:red, markersize = length(vertices[1])==2 ? 12 : 75)
     #mesh!(ax, catastrophePoints, color=:lightgrey, alpha=0.15)
-    #meshing(ax, catastrophePoints, 5)
     !isempty(catastrophePoints) ? scatter!(ax, catastrophePoints; alpha=0.1, markersize=0.5, color=:lightgrey) : nothing
     if(length(vertices[1])==2)
         xlimiter = Node([Inf,-Inf]); xlimiter = @lift(computeMinMax($fixedVertices, $shadowPoints, $xlimiter, 1));
@@ -223,14 +312,6 @@ function computeMinMax(fixedVertices,shadowPoints,limiter,xyz)
         shadowPoints[i][xyz] < limiter[1] ? limiter[1]=shadowPoints[i][xyz] : nothing
     end
     return(limiter)
-end
-
-function meshing(scene, points, density)
-    for i in 1:length(points)
-        v = [norm(points[i]-points[j]) for j in 1:length(points)]
-        idx = filter(j->j!=i,partialsortperm(v, 1:density+1; rev=false))
-        foreach(j->linesegments!(scene, [points[i],points[j]]; linewidth = 0.7, alpha=0.2, color=:lightgrey), idx)
-    end
 end
 
 #= The method catastrophePoints computes a witness set of the catastrophe discriminant using monodromy loops

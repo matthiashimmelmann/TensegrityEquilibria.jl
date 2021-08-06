@@ -1,14 +1,16 @@
 name = "TensegrityEquilibria"
 uuid = "dcaeff44-b3e3-40bb-9039-8883ea4974a9"
 authors = ["Matthias Himmelmann <matthias.himmelmann@outlook.de>"]
-version = "0.1.4"
+version = "0.1.5"
 
 [deps]
 GLMakie = "e9467ef8-e4e7-5192-8a1a-b1aee30e663a"
 HomotopyContinuation = "f213a82b-91d6-5c5d-acf7-10f1c761b327"
+HomotopyOpt = "8c5e0f79-7402-43d4-9c5c-e1bde87b1895"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 
 [compat]
 GLMakie = "0.2"
 HomotopyContinuation = "2.5"
 julia = "1.4"
+HomotopyOpt = "0.1"
