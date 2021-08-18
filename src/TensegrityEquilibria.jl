@@ -42,10 +42,28 @@ listOfInternalVariables::[a,...], listOfControlParams::[a,...], targetParams::[a
 If an animation is wished, use the optional argument timestamps::[[q_11,q_12,...],...] to provide a path (given by points) in the space listOfControlParams.
 Calculate configurations in equilibrium for the given tensegrity framework
 =#
-function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Array, listOfInternalVariables::Array{Variable,1}, listOfControlParams::Array, targetParams::Array, knownBars::Array, knownCables::Array, timestamps=[]; thresholdForIteration = 9)
+function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Array, listOfInternalVariables::Array{Variable,1}, listOfControlParams::Array, targetParams::Array, knownBars::Array, knownCables::Array, timestamps=[]; thresholdForIteration = 30, thresholdForEDStep=9)
     assertCorrectInput(vertices, unknownBars, unknownCables, listOfInternalVariables, listOfControlParams, targetParams, knownBars, knownCables)
     equilibriaarray = []
     if length(listOfInternalVariables)>=thresholdForIteration
+        B = []
+        for index in 1:length(unknownBars)
+            l_ij=unknownBars[index][3]; p_i=vertices[Int64(unknownBars[index][1])]; p_j=vertices[Int64(unknownBars[index][2])];
+            bar = !isempty(listOfControlParams) ? Expression(evaluate(sum((p_i-p_j).^2)-l_ij^2, listOfControlParams=>targetParams)) : Expression(sum((p_i-p_j).^2)-l_ij^2)
+            push!(B, bar)
+        end
+        B = Vector{Expression}(B)
+        ConV = HomotopyOpt.ConstraintVariety(listOfInternalVariables, B, length(listOfInternalVariables), length(listOfInternalVariables)-length(B), 2^(length(vertices[1]))*6)
+        Q = x->energyfunc(x, listOfInternalVariables, vertices, listOfControlParams, targetParams, unknownCables)
+        for q in ConV.samples
+        	resultminimum = HomotopyOpt.findminima(q, 1e-4, ConV, Q; maxseconds=1000, whichstep="gaussnewtonstep", initialstepsize=0.3);
+        	if !any( point -> norm(resultminimum.computedpoints[end]-point)<0.01, equilibriaarray ) && resultminimum.lastpointisminimum
+        	    push!(equilibriaarray,resultminimum.computedpoints[end])
+        	end
+        end
+        realSol = plotStaticFramework(vertices, equilibriaarray, unknownBars, knownBars, unknownCables, knownCables, listOfInternalVariables, listOfControlParams, targetParams)
+        return(realSol, listOfInternalVariables)
+    elseif length(listOfInternalVariables)>=thresholdForEDStep
         B = []
         for index in 1:length(unknownBars)
             l_ij=unknownBars[index][3]; p_i=vertices[Int64(unknownBars[index][1])]; p_j=vertices[Int64(unknownBars[index][2])];
@@ -422,116 +440,24 @@ end
 
 #= Given a list of lists of vertices (on a parameter path) as a list of Point2f0 or Point3f0 and a list of edges ([[i,j], ...]). fr is the preferred framerate
 =#
-function animateTensegrity(listOfVertexSets::Array, listOfEdges::Array, fr::Int)
+function animateTensegrity(listOfVertexSets::Array, listOfEdges::Array, frames::Int)
     currentConfiguration = Node(listOfVertexSets[1])
     scene=Scene()
+    xmin, xmax = minimum([minimum([p[1] for p in vertices]) for vertices in listOfVertexSets]), maximum([maximum([p[1] for p in vertices]) for vertices in listOfVertexSets])
+    ymin, ymax = minimum([minimum([p[2] for p in vertices]) for vertices in listOfVertexSets]), maximum([maximum([p[2] for p in vertices]) for vertices in listOfVertexSets])
+
     scatter!(scene, @lift([f for f in to_point($currentConfiguration)]))
+    xlims!(scene, (xmin-2e-1, xmax+2e-1))
+    ylims!(scene, (ymin-2e-1, ymax+2e-1))
     for edge in listOfEdges
         linesegments!(scene, @lift([to_point($currentConfiguration)[edge[1]], to_point($currentConfiguration)[edge[2]]]))
     end
 
     timestamps = [i for i in 1:length(listOfVertexSets)]
-    record(scene, "animatedTensegrity.gif", timestamps; framerate = fr) do i
+    record(scene, "animatedTensegrity.gif", timestamps; framerate = frames) do i
         currentConfiguration[] = listOfVertexSets[i]
     end
     display(scene)
-end
-
-function start_demo(whichTests::Array)
-    #Tests
-    if(-1 in whichTests)
-        animateTensegrity([[[0,1],[1,0]], [[0,0],[1,1]]], [[1,2]], 1)
-    end
-
-    if(0 in whichTests)
-        @var p[1:4];
-        display(stableEquilibria([[1.0,0],[2.0,1/4],p[1:2],p[3:4]],[[1,3,0.5]],[[2,3,1/4,1/4],[3,4,1/4,1/4]],p[1:2],p[3:4],[0.0,0.0],[],[]))
-        sleep(5)
-    end
-
-    if(0.1 in whichTests)
-        t=0:1/15:2*pi
-        timestamps=[[0.1,0.5*sin(time)-0.25] for time in t]
-        @var p[1:4];
-        display(stableEquilibria([[1.0,0],[2.0,1/4],p[1:2],p[3:4]],[[1,3,0.5]],[[2,3,1/4,1/4],[3,4,1/4,1/4]],p[1:2],p[3:4],[0.0,0.0],[],[],timestamps))
-        sleep(5)
-    end
-
-    if(1 in whichTests)
-        @var p[1:2] l;
-        display(stableEquilibria([[1,2],[3,4],p],[[1,3,l]],[[2,3,1,1]],p,[l],[2.5],[],[]))
-        sleep(5)
-    end
-
-    if(2 in whichTests)
-        @var p[1:6] ell
-        display(stableEquilibria([p[1:3],p[4:6],[0,1,0],[sin(2*pi/3),cos(2*pi/3),0], [sin(4*pi/3),cos(4*pi/3),0]],
-                                 [[1,2,ell]],
-                                 [[1,3,1,1],[1,4,1,1],[1,5,1,1],[2,3,1,1],[2,4,1,1],[2,5,1,1]],
-                                 p,[ell],[1.0],
-                                 [[3,4],[3,5],[4,5]],[])
-        )
-        sleep(5)
-    end
-
-    if(2.1 in whichTests)
-        @var p[1:6]
-        display(stableEquilibria([p[1:3],p[4:6],[0,1,0],[sin(2*pi/3),cos(2*pi/3),0], [sin(4*pi/3),cos(4*pi/3),0]],
-                                 [[1,2,2.0]],
-                                 [[1,3,1,1],[1,4,1,1],[1,5,1,1],[2,3,1,1],[2,4,1,1],[2,5,1,1]],
-                                 p[4:6],p[1:3],[0.0,-1.0,0.0],
-                                 [[3,4],[3,5],[4,5]],[])
-        )
-        sleep(5)
-    end
-
-    if(3 in whichTests)
-        @var p[1:7] c
-        display(stableEquilibria([[0,1,0],[sin(2*pi/3),cos(2*pi/3),0],[sin(4*pi/3),cos(4*pi/3),0],[p[1],p[2],p[7]],[p[3],p[4],p[7]],[p[5],p[6],p[7]]],
-                                 [[1,4,3], [2,5,3],[3,6,3]],
-                                 [[1,5,2.5,c],[2,6,2.5,c],[3,4,2.5,c],[4,5,1,1.0],[5,6,1,1.0],[4,6,1,1.0]],
-                                 p[1:6],[c,p[7]],[2.0,2.75],
-                                 [],
-                                 [[1,2],[2,3],[1,3]])
-        )
-        sleep(5)
-    end
-
-    if(3.1 in whichTests)
-        @var p[1:9]
-        display(stableEquilibria([[0,1,0],[sin(2*pi/3),cos(2*pi/3),0],[sin(4*pi/3),cos(4*pi/3),0],[p[1],p[2],p[3]],[p[4],p[5],p[6]],[p[7],p[8],p[9]]],
-                                 [[1,4,3], [2,5,3],[3,6,3]],
-                                 [[1,5,2.5,1.0],[2,6,2.5,1.0],[3,4,2.5,1.0],[4,5,1,1.0],[5,6,1,1.0],[4,6,1,1.0]],
-                                 p[1:9],[],[],
-                                 [],
-                                 [[1,2],[2,3],[1,3]])
-        )
-        sleep(5)
-    end
-
-    if(3.2 in whichTests)
-        @var p[1:9]
-        display(stableEquilibria([[0,1,0],[sin(2*pi/3),cos(2*pi/3),0],[sin(4*pi/3),cos(4*pi/3),0],[p[1],p[2],p[3]],[p[4],p[5],p[6]],[p[7],p[8],p[9]]],
-                                 [[1,4,3], [2,5,3],[3,6,3]],
-                                 [[1,5,2.5,1.0],[2,6,2.5,1.0],[3,4,2.5,1.0],[4,5,1,1.0],[5,6,1,1.0],[4,6,1,1.0]],
-                                 p[1:6],p[7:9],[0.6053381, 0, 2.5661428],
-                                 [],
-                                 [[1,2],[2,3],[1,3]])
-        )
-        sleep(5)
-    end
-
-    if(4 in whichTests)
-        @var p[1:9]
-        display(stableEquilibria([[0,0,0], [1,0,0], [1,1,0], [0,1,0], p[1:3], [p[4],p[5],p[3]], [p[6],p[7],p[3]], [p[8],p[9],p[3]]],
-                                 [[1,7,2], [2,8,2],[3,5,2],[4,6,2]],
-                                 [[5,6,0.5,1], [6,7,0.5,1],[7,8,0.5,1],[5,8,0.5,1], [1,5,1.,1], [2,6,1.,1], [3,7,1.,1],[4,8,1.,1]],
-                                 p[1:9],[],[],
-                                 [],
-                                 [[1,2], [2,3], [3,4], [1,4]])
-        )
-        sleep(5)
-    end
 end
 
 end

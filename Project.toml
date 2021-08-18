@@ -1,7 +1,7 @@
 name = "TensegrityEquilibria"
 uuid = "dcaeff44-b3e3-40bb-9039-8883ea4974a9"
 authors = ["Matthias Himmelmann <matthias.himmelmann@outlook.de>"]
-version = "0.1.5"
+version = "0.1.6"
 
 [deps]
 GLMakie = "e9467ef8-e4e7-5192-8a1a-b1aee30e663a"
