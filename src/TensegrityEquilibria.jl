@@ -42,7 +42,7 @@ listOfInternalVariables::[a,...], listOfControlParams::[a,...], targetParams::[a
 If an animation is wished, use the optional argument timestamps::[[q_11,q_12,...],...] to provide a path (given by points) in the space listOfControlParams.
 Calculate configurations in equilibrium for the given tensegrity framework
 =#
-function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Array, listOfInternalVariables::Array{Variable,1}, listOfControlParams::Array, targetParams::Array, knownBars::Array, knownCables::Array, timestamps=[]; thresholdForIteration = 30, thresholdForEDStep=9)
+function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Array, listOfInternalVariables::Array{Variable,1}, listOfControlParams::Array, targetParams::Array, knownBars::Array, knownCables::Array, timestamps=[]; thresholdForIteration = 30, thresholdForEDStep=6)
     assertCorrectInput(vertices, unknownBars, unknownCables, listOfInternalVariables, listOfControlParams, targetParams, knownBars, knownCables)
     equilibriaarray = []
     if length(listOfInternalVariables)>=thresholdForIteration
