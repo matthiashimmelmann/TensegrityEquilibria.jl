@@ -6,9 +6,7 @@ export stableEquilibria,
 
 import LinearAlgebra: norm, nullspace, zeros, eigvals
 import HomotopyContinuation: @var, Expression, evaluate, solve, differentiate, System, InterpretedSystem, randn, target_parameters!, real_solutions, nparameters, jacobian!, monodromy_solve, Variable, solutions, ParameterHomotopy, solver_startsolutions, parameters, variables
-import GLMakie: scatter!, Node, @lift, limits!, linesegments!, record, Point3f0, on, Point2f0, Point, FRect, Scene, cam3d!, xlims!, ylims!, zlims!
-import GLMakie.AbstractPlotting: layoutscene, labelslidergrid!, Box, Label, LScene, MakieLayout, set_close_to!, Axis
-import HomotopyOpt
+import GLMakie: scatter!, Node, @lift, limits!, linesegments!, record, Point3f0, on, Point2f0, Point, FRect, Scene, cam3d!, xlims!, ylims!, zlims!,LScene
 
 function energyfunc(currentvalue, unknownvalues, vertices, parameters, targetparameters, unknownCables)
     Q=0.0
@@ -42,7 +40,89 @@ listOfInternalVariables::[a,...], listOfControlParams::[a,...], targetParams::[a
 If an animation is wished, use the optional argument timestamps::[[q_11,q_12,...],...] to provide a path (given by points) in the space listOfControlParams.
 Calculate configurations in equilibrium for the given tensegrity framework
 =#
-function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Array, listOfInternalVariables::Array{Variable,1}, listOfControlParams::Array, targetParams::Array, knownBars::Array, knownCables::Array, timestamps=[]; thresholdForIteration = 30, thresholdForEDStep=6)
+function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Array, listOfInternalVariables::Array{Variable,1}, listOfControlParams::Array, targetParams::Array, knownBars::Array, knownCables::Array, timestamps=[]; thresholdForIteration = 30, thresholdForEDStep=15)
+    assertCorrectInput(vertices, unknownBars, unknownCables, listOfInternalVariables, listOfControlParams, targetParams, knownBars, knownCables)
+    equilibriaarray = []
+    if length(listOfInternalVariables)>=thresholdForIteration
+        B = []
+        for index in 1:length(unknownBars)
+            l_ij=unknownBars[index][3]; p_i=vertices[Int64(unknownBars[index][1])]; p_j=vertices[Int64(unknownBars[index][2])];
+            bar = !isempty(listOfControlParams) ? Expression(evaluate(sum((p_i-p_j).^2)-l_ij^2, listOfControlParams=>targetParams)) : Expression(sum((p_i-p_j).^2)-l_ij^2)
+            push!(B, bar)
+        end
+        B = Vector{Expression}(B)
+        ConV = HomotopyOpt.ConstraintVariety(listOfInternalVariables, B, length(listOfInternalVariables), length(listOfInternalVariables)-length(B), 2^(length(vertices[1]))*6)
+        Q = x->energyfunc(x, listOfInternalVariables, vertices, listOfControlParams, targetParams, unknownCables)
+        for q in ConV.samples
+        	resultminimum = HomotopyOpt.findminima(q, 1e-4, ConV, Q; maxseconds=1000, whichstep="gaussnewtonstep", initialstepsize=0.3);
+        	if !any( point -> norm(resultminimum.computedpoints[end]-point)<0.01, equilibriaarray ) && resultminimum.lastpointisminimum
+        	    push!(equilibriaarray,resultminimum.computedpoints[end])
+        	end
+        end
+        realSol = plotStaticFramework(vertices, equilibriaarray, unknownBars, knownBars, unknownCables, knownCables, listOfInternalVariables, listOfControlParams, targetParams)
+        return(realSol, listOfInternalVariables)
+    elseif length(listOfInternalVariables)>=thresholdForEDStep
+        B = []
+        for index in 1:length(unknownBars)
+            l_ij=unknownBars[index][3]; p_i=vertices[Int64(unknownBars[index][1])]; p_j=vertices[Int64(unknownBars[index][2])];
+            bar = !isempty(listOfControlParams) ? Expression(evaluate(sum((p_i-p_j).^2)-l_ij^2, listOfControlParams=>targetParams)) : Expression(sum((p_i-p_j).^2)-l_ij^2)
+            push!(B, bar)
+        end
+        B = Vector{Expression}(B)
+        ConV = HomotopyOpt.ConstraintVariety(listOfInternalVariables, B, length(listOfInternalVariables), length(listOfInternalVariables)-length(B), 2^(length(vertices[1]))*6)
+        Q = x->energyfunc(x, listOfInternalVariables, vertices, listOfControlParams, targetParams, unknownCables)
+        for q in ConV.samples
+        	resultminimum = HomotopyOpt.findminima(q, 1e-4, ConV, Q; maxseconds=1000, whichstep="EDStep", initialstepsize=0.3);
+        	if !any( point -> norm(resultminimum.computedpoints[end]-point)<0.01, equilibriaarray ) && resultminimum.lastpointisminimum
+        	    push!(equilibriaarray,resultminimum.computedpoints[end])
+        	end
+        end
+        realSol = plotStaticFramework(vertices, equilibriaarray, unknownBars, knownBars, unknownCables, knownCables, listOfInternalVariables, listOfControlParams, targetParams)
+        return(realSol, listOfInternalVariables)
+    end
+    @var delta[1:length(unknownCables)]
+    B, C, G = [], [], []
+    for index in 1:length(unknownBars)
+        l_ij=unknownBars[index][3]; p_i=vertices[Int64(unknownBars[index][1])]; p_j=vertices[Int64(unknownBars[index][2])];
+        push!(B, sum((p_i-p_j).^2)-l_ij^2)
+    end
+    for index in 1:length(unknownCables)
+        r_ij=unknownCables[index][3]; p_i=vertices[Int64(unknownCables[index][1])]; p_j=vertices[Int64(unknownCables[index][2])]; e_ij=unknownCables[index][4];
+        push!(C, sum((p_i-p_j).^2)-delta[index]^2)
+    end
+    append!(G,B); append!(G,C);
+    e = map(t->t[4], unknownCables); r = map(t->t[3], unknownCables);
+    Q = sum(e.*(r-delta).^2/2)
+
+    @var lambda[1:length(G)]
+    L = Q + lambda'*G
+    ∇L = differentiate(L, [listOfInternalVariables; delta; lambda])
+    catastropheWitness = catastrophePoints([entry for entry in vertices], listOfInternalVariables, listOfControlParams, targetParams, unknownCables, unknownBars)
+    if(!isempty(listOfInternalVariables))
+        F = isempty(listOfControlParams) ? System(∇L; variables = [listOfInternalVariables; delta; lambda]) : System(∇L; variables = [listOfInternalVariables; delta; lambda], parameters = listOfControlParams)
+        params₀ = randn(ComplexF64, nparameters(F))
+        #TODO compute a local solution via gradient descent
+        res₀ = isempty(listOfControlParams) ? solve(F) : solve(F; target_parameters = params₀)
+
+        S₀ = solutions(res₀)
+        H = ParameterHomotopy(F, params₀, params₀)
+        solver, _ = solver_startsolutions(H, S₀)
+        if(isempty(timestamps))
+            # produces a non-animate, interactive plots
+            realSol = plotStaticFramework(vertices, unknownBars, knownBars, unknownCables, knownCables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G, catastropheWitness)
+            return(realSol, listOfInternalVariables)
+        else
+            # produces an animation
+            realSol = animateSolvedFramework(vertices, unknownBars, knownBars, unknownCables, knownCables, solver, S₀, listOfInternalVariables, listOfControlParams, targetParams, delta, lambda, L, G, catastropheWitness, timestamps)
+            return(realSol, listOfInternalVariables)
+        end
+    else
+        throw(error("Internal variables need to be provided!"))
+    end
+    return(nothing)
+end
+
+function stableEquilibria(vertices::Array, unknownBars::Array, unknownCables::Array, listOfInternalVariables::Array{Variable,1}, listOfControlParams::Array, targetParams::Array, knownBars::Array, knownCables::Array, timestamps=[], startPoint::Array; thresholdForIteration = 30, thresholdForEDStep=6)
     assertCorrectInput(vertices, unknownBars, unknownCables, listOfInternalVariables, listOfControlParams, targetParams, knownBars, knownCables)
     equilibriaarray = []
     if length(listOfInternalVariables)>=thresholdForIteration
@@ -209,17 +289,17 @@ function plotStaticFramework(vertices, solutions, unknownBars, knownBars, unknow
     # Make the variable params interactive.
     params=Node(targetParams)
 
-    scene, layout = layoutscene(resolution = (1400, 850))
-    ax = layout[1:4, 1] = length(vertices[1])==3 ? LScene(scene, width=750, height=750, camera = cam3d!, raw = false) : MakieLayout.Axis(scene,width=750,height=750)
+    scene = Figure(resolution=(1400,850))
+    ax = scene[1:4, 1] = length(vertices[1])==3 ? LScene(scene, width=750, height=750, camera = cam3d!, raw = false) : MakieLayout.Axis(scene,width=750,height=750)
 
     # Initialization of the scene's layout.
-    layout[1:4, 2] = Box(scene, color = :white, strokecolor = :transparent, width=50)
-    layout[1, 3] = Box(scene, color = :white, strokecolor = :transparent, height=200)
-    layout[2, 3] = Box(scene, color = (:white, 0.1), strokecolor = :red, height=80, width=400)
-    layout[2, 3] = Label(scene, "Press the 'n' Key to iterate through\nthe different vertex configurations", textsize = 20, halign=:center, valign=:center, color=:teal)
-    layout[3, 3] = Box(scene, color = (:white, 0.1), strokecolor = :red, height=80, width=400)
-    layout[3, 3] = Label(scene, "Due to the given framework's size,\n only some equilibria are displayed.", textsize = 20, halign=:center, valign=:center, color=:teal)
-    layout[4, 3] = Box(scene, color = :white, strokecolor = :transparent, height=200)
+    scene[1:4, 2] = Box(scene, color = :white, strokecolor = :transparent, width=50)
+    scene[1, 3] = Box(scene, color = :white, strokecolor = :transparent, height=200)
+    scene[2, 3] = Box(scene, color = (:white, 0.1), strokecolor = :red, height=80, width=400)
+    scene[2, 3] = Label(scene, "Press the 'n' Key to iterate through\nthe different vertex configurations", textsize = 20, halign=:center, valign=:center, color=:teal)
+    scene[3, 3] = Box(scene, color = (:white, 0.1), strokecolor = :red, height=80, width=400)
+    scene[3, 3] = Label(scene, "Due to the given framework's size,\n only some equilibria are displayed.", textsize = 20, halign=:center, valign=:center, color=:teal)
+    scene[4, 3] = Box(scene, color = :white, strokecolor = :transparent, height=200)
 
 
     solutions = arrangeArray(vertices, listOfInternalVariables, solutions, listOfControlParams, [])
